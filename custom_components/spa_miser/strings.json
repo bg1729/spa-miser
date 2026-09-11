@@ -54,7 +54,15 @@
       "loss_coefficient": { "name": "Fitted loss coefficient" },
       "wind_coefficient": { "name": "Fitted wind coefficient" },
       "thermal_mass": { "name": "Estimated thermal mass" },
-      "model_fit_quality": { "name": "Model fit quality (R²)" }
+      "model_fit_quality": { "name": "Model fit quality (R²)" },
+      "source_climate_entity": { "name": "Climate entity source" },
+      "source_water_temp_sensor": { "name": "Water temperature source" },
+      "source_heating_state_entity": { "name": "Heating state source" },
+      "source_weather_entity": { "name": "Weather source" },
+      "source_power_entity": { "name": "Power sensor source" },
+      "source_energy_entity": { "name": "Energy sensor source" },
+      "source_outdoor_temp_sensor": { "name": "Outdoor temperature source" },
+      "source_wind_speed_sensor": { "name": "Wind speed source" }
     },
     "binary_sensor": {
       "heating_recommended": { "name": "Heating recommended" }

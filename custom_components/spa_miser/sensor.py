@@ -16,7 +16,17 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN
+from .const import (
+    CONF_CLIMATE_ENTITY,
+    CONF_ENERGY_ENTITY,
+    CONF_HEATING_STATE_ENTITY,
+    CONF_OUTDOOR_TEMP_SENSOR,
+    CONF_POWER_ENTITY,
+    CONF_WATER_TEMP_SENSOR,
+    CONF_WEATHER_ENTITY,
+    CONF_WIND_SPEED_SENSOR,
+    DOMAIN,
+)
 from .coordinator import SpaMiserCoordinator, SpaMiserData
 from .entity import SpaMiserEntity
 
@@ -106,12 +116,91 @@ SENSOR_DESCRIPTIONS: tuple[SpaMiserSensorDescription, ...] = (
 )
 
 
+@dataclass(frozen=True, kw_only=True)
+class SourceSensorDescription(SensorEntityDescription):
+    """Describes a diagnostic sensor that just reports a configured entity_id.
+
+    Not driven by the coordinator - these reflect the config entry's own
+    data (set once at setup), so they exist purely so the device page shows,
+    at a glance, exactly which entity each field is reading from. That's
+    otherwise invisible: the source entities belong to other integrations'
+    devices, so HA has no built-in way to surface "what this integration
+    depends on" without something like this.
+    """
+
+    conf_key: str = ""
+
+
+SOURCE_SENSOR_DESCRIPTIONS: tuple[SourceSensorDescription, ...] = (
+    SourceSensorDescription(
+        key="source_climate_entity",
+        translation_key="source_climate_entity",
+        icon="mdi:link-variant",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        conf_key=CONF_CLIMATE_ENTITY,
+    ),
+    SourceSensorDescription(
+        key="source_water_temp_sensor",
+        translation_key="source_water_temp_sensor",
+        icon="mdi:link-variant",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        conf_key=CONF_WATER_TEMP_SENSOR,
+    ),
+    SourceSensorDescription(
+        key="source_heating_state_entity",
+        translation_key="source_heating_state_entity",
+        icon="mdi:link-variant",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        conf_key=CONF_HEATING_STATE_ENTITY,
+    ),
+    SourceSensorDescription(
+        key="source_weather_entity",
+        translation_key="source_weather_entity",
+        icon="mdi:link-variant",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        conf_key=CONF_WEATHER_ENTITY,
+    ),
+    SourceSensorDescription(
+        key="source_power_entity",
+        translation_key="source_power_entity",
+        icon="mdi:link-variant",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        conf_key=CONF_POWER_ENTITY,
+    ),
+    SourceSensorDescription(
+        key="source_energy_entity",
+        translation_key="source_energy_entity",
+        icon="mdi:link-variant",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        conf_key=CONF_ENERGY_ENTITY,
+    ),
+    SourceSensorDescription(
+        key="source_outdoor_temp_sensor",
+        translation_key="source_outdoor_temp_sensor",
+        icon="mdi:link-variant",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        conf_key=CONF_OUTDOOR_TEMP_SENSOR,
+    ),
+    SourceSensorDescription(
+        key="source_wind_speed_sensor",
+        translation_key="source_wind_speed_sensor",
+        icon="mdi:link-variant",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        conf_key=CONF_WIND_SPEED_SENSOR,
+    ),
+)
+
+
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
     coordinator: SpaMiserCoordinator = hass.data[DOMAIN][entry.entry_id]
     async_add_entities(
-        SpaMiserSensor(coordinator, description) for description in SENSOR_DESCRIPTIONS
+        [SpaMiserSensor(coordinator, description) for description in SENSOR_DESCRIPTIONS]
+        + [
+            ConfiguredSourceSensor(coordinator, description)
+            for description in SOURCE_SENSOR_DESCRIPTIONS
+        ]
     )
 
 
@@ -127,3 +216,18 @@ class SpaMiserSensor(SpaMiserEntity, SensorEntity):
     @property
     def native_value(self):
         return self.entity_description.value_fn(self.coordinator.data)
+
+
+class ConfiguredSourceSensor(SpaMiserEntity, SensorEntity):
+    entity_description: SourceSensorDescription
+
+    def __init__(
+        self, coordinator: SpaMiserCoordinator, description: SourceSensorDescription
+    ) -> None:
+        super().__init__(coordinator, description.key)
+        self.entity_description = description
+
+    @property
+    def native_value(self) -> str:
+        value = self.coordinator.entry.data.get(self.entity_description.conf_key)
+        return value or "Not configured"

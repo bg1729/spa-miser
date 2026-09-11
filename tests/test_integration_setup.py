@@ -75,5 +75,12 @@ async def test_setup_entry_creates_platform_entities(hass, enable_custom_integra
         state = hass.states.get(entity_id)
         assert state is not None, f"expected entity {entity_id} to exist"
 
+    # Source sensors report exactly the entity_id configured for each role,
+    # so the device page shows what this integration actually reads from.
+    source_state = hass.states.get("sensor.spa_miser_climate_entity_source")
+    assert source_state.state == "climate.balboa_spa"
+    unconfigured_state = hass.states.get("sensor.spa_miser_outdoor_temperature_source")
+    assert unconfigured_state.state == "Not configured"
+
     assert await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
