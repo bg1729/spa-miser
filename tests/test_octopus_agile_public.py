@@ -11,6 +11,12 @@ PRODUCTS_RESPONSE = {
         {"code": "AGILE-23-12-06", "available_to": "2024-10-01T00:00:00Z"},
         {"code": "AGILE-24-10-01", "available_to": None},
         {"code": "VAR-22-11-01", "available_to": None},  # not an Agile product
+        # A real, still-active Octopus product sharing the "AGILE-" prefix,
+        # but a different tariff entirely (export, not import) - this is
+        # exactly what a naive "pick the lexicographically greatest
+        # AGILE-prefixed code" would wrongly select instead, since it sorts
+        # after any AGILE-YY-MM-DD code (found live against the real API).
+        {"code": "AGILE-OUTGOING-19-05-13", "available_to": None},
     ]
 }
 
@@ -47,6 +53,29 @@ async def test_fetches_rates_for_the_latest_active_agile_product(hass, aioclient
     assert slots[0].price == 0.155  # pence -> pounds
     assert slots[1].price == -0.032
     assert aioclient_mock.call_count == 2
+
+
+async def test_excludes_agile_outgoing_and_other_non_import_products(hass, aioclient_mock):
+    aioclient_mock.get(PRODUCTS_URL, json=PRODUCTS_RESPONSE)
+    # If the outgoing product were wrongly selected, this is the rates URL
+    # it would hit instead - asserting it's never called is as important as
+    # asserting the correct URL is.
+    wrong_rates_url = (
+        "https://api.octopus.energy/v1/products/AGILE-OUTGOING-19-05-13/"
+        "electricity-tariffs/E-1R-AGILE-OUTGOING-19-05-13-E/standard-unit-rates/"
+    )
+    correct_rates_url = (
+        "https://api.octopus.energy/v1/products/AGILE-24-10-01/electricity-tariffs/"
+        "E-1R-AGILE-24-10-01-E/standard-unit-rates/"
+    )
+    aioclient_mock.get(correct_rates_url, json=RATES_RESPONSE)
+
+    source = OctopusAgilePublicPriceSource(region="E")
+    slots = await source.async_get_forecast(hass)
+
+    assert len(slots) == 2
+    called_urls = {str(c[1]) for c in aioclient_mock.mock_calls}
+    assert not any(wrong_rates_url in url for url in called_urls)
 
 
 async def test_no_active_agile_product_returns_empty(hass, aioclient_mock):

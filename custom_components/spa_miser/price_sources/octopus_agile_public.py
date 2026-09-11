@@ -10,6 +10,7 @@ real tariff, to "mirror Agile behaviour" without switching.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timedelta
 
 from homeassistant.core import HomeAssistant
@@ -32,6 +33,14 @@ FORECAST_HOURS = 48
 # not every request.
 PRODUCT_CACHE_MINUTES = 60
 REQUEST_TIMEOUT_SECONDS = 10
+# Matches only the standard import Agile product's date-coded naming (e.g.
+# AGILE-24-10-01). A bare `code.startswith("AGILE-")` check also matches
+# other real Octopus products sharing that prefix - notably
+# AGILE-OUTGOING-19-05-13, the *export* tariff for solar, which has an
+# entirely different (much lower/negative) price structure and would
+# otherwise get silently selected instead (it sorts after any AGILE-YY-...
+# code lexicographically, so a naive "pick the greatest" heuristic picks it).
+AGILE_IMPORT_PRODUCT_CODE_RE = re.compile(r"^AGILE-\d{2}-\d{2}-\d{2}$")
 
 
 class OctopusAgilePublicPriceSource(PriceSource):
@@ -61,12 +70,14 @@ class OctopusAgilePublicPriceSource(PriceSource):
             return self._cached_product_code  # fall back to last-known-good, if any
 
         # Product codes are date-stamped (e.g. AGILE-24-10-01); among
-        # currently-active Agile products, the lexicographically greatest
-        # code is the newest.
+        # currently-active *import* Agile products, the lexicographically
+        # greatest code is the newest (date-coded, so lexicographic order
+        # matches chronological order once non-matching codes are excluded).
         candidates = sorted(
             p["code"]
             for p in data.get("results", [])
-            if p.get("code", "").startswith("AGILE-") and p.get("available_to") is None
+            if AGILE_IMPORT_PRODUCT_CODE_RE.match(p.get("code", ""))
+            and p.get("available_to") is None
         )
         if not candidates:
             _LOGGER.warning("No currently-active Octopus Agile product found")
