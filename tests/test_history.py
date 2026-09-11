@@ -131,6 +131,16 @@ async def test_build_hourly_samples_skips_hours_missing_power_data(hass):
     assert samples[0].heater_power_kw == 3.0
 
 
+def _raw_history_patch(states_by_entity):
+    return patch.object(
+        history,
+        "state_changes_during_period",
+        side_effect=lambda hass, start, end, entity_id: {
+            entity_id: states_by_entity.get(entity_id, [])
+        },
+    )
+
+
 async def test_falls_back_to_raw_history_when_entity_has_no_statistics(hass):
     # sensor.water is intentionally absent from the statistics fixture, so
     # statistics_during_period returns [] for it - matching a real gateway
@@ -141,9 +151,8 @@ async def test_falls_back_to_raw_history_when_entity_has_no_statistics(hass):
     power_w = {0: 3000.0, 1: 0.0}
     raw_water_states = {
         "sensor.water": [
-            State("sensor.water", "38.0", last_updated=_hour(0) + timedelta(minutes=10)),
-            State("sensor.water", "38.2", last_updated=_hour(0) + timedelta(minutes=40)),
-            State("sensor.water", "37.8", last_updated=_hour(1) + timedelta(minutes=15)),
+            State("sensor.water", "38.0", last_updated=_hour(0)),
+            State("sensor.water", "37.8", last_updated=_hour(1)),
         ]
     }
 
@@ -154,13 +163,7 @@ async def test_falls_back_to_raw_history_when_entity_has_no_statistics(hass):
             "statistics_during_period",
             side_effect=_stats_for({"sensor.outdoor": ambient, "sensor.power": power_w}),
         ),
-        patch.object(
-            history,
-            "state_changes_during_period",
-            side_effect=lambda hass, start, end, entity_id: {
-                entity_id: raw_water_states.get(entity_id, [])
-            },
-        ),
+        _raw_history_patch(raw_water_states),
     ):
         samples = await history.async_build_hourly_samples(
             hass,
@@ -172,12 +175,79 @@ async def test_falls_back_to_raw_history_when_entity_has_no_statistics(hass):
             end=END,
         )
 
-    assert len(samples) == 1
-    # Hour 0's raw readings (38.0, 38.2) average to 38.1; hour 1 (37.8) is
-    # only usable as the delta target here, since there's no hour-2 water
-    # reading to compute hour 1's own delta against.
-    assert samples[0].water_temp_c == pytest.approx(38.1)
-    assert samples[0].delta_temp_c == pytest.approx(37.8 - 38.1)
+    # Forward-fill also carries hour 1's value into hour 2 (there's no
+    # explicit change there either), which - now that hour 1 has a "next
+    # hour" of its own - makes hour 1 independently sample-able too,
+    # alongside hour 0.
+    assert len(samples) == 2
+    assert samples[0].water_temp_c == 38.0
+    assert samples[0].delta_temp_c == pytest.approx(37.8 - 38.0)
+    assert samples[1].water_temp_c == 37.8
+    assert samples[1].delta_temp_c == 0.0
+
+
+async def test_raw_history_mean_forward_fills_through_quiet_hours(hass):
+    # The real bug this fixes: an MQTT sensor that only republishes on
+    # change leaves long gaps whenever the value is genuinely stable -
+    # bucketing only literal change-events left the vast majority of hours
+    # "missing" even though the true value for them was perfectly
+    # well-defined (whatever it last changed to). One reading, then
+    # silence for the rest of the window, should still yield a value for
+    # every subsequent hour.
+    ambient = {i: 5.0 for i in range(6)}
+    power_w = {i: 0.0 for i in range(6)}
+    raw_water_states = {
+        "sensor.water": [State("sensor.water", "38.0", last_updated=_hour(0))]
+    }
+
+    with (
+        patch.object(history, "get_instance", return_value=_FakeRecorderInstance()),
+        patch.object(
+            history,
+            "statistics_during_period",
+            side_effect=_stats_for({"sensor.outdoor": ambient, "sensor.power": power_w}),
+        ),
+        _raw_history_patch(raw_water_states),
+    ):
+        samples = await history.async_build_hourly_samples(
+            hass,
+            water_temp_entity="sensor.water",
+            outdoor_temp_entity="sensor.outdoor",
+            wind_speed_entity=None,
+            power_entity="sensor.power",
+            start=START,
+            end=END,
+        )
+
+    # END is START+5h, so hours 0-4 each have a following hour to compute a
+    # delta against (hour 5 doesn't); a single change event at hour 0 with
+    # no state_class means it can only make it here via forward-fill.
+    assert len(samples) == 5
+    assert all(s.water_temp_c == 38.0 for s in samples)
+    assert all(s.delta_temp_c == 0.0 for s in samples)
+
+
+async def test_raw_history_max_does_not_forward_fill(hass):
+    # Unlike "mean", a genuinely quiet hour has no evidence of what a peak
+    # (e.g. heater power) was during it - forward-filling would understate
+    # a real spike that happened to fall in a gap, so only hours with an
+    # actual recorded point should get a value here.
+    raw_states = {
+        "sensor.power": [State("sensor.power", "3000", last_updated=_hour(0))]
+    }
+
+    with (
+        patch.object(history, "get_instance", return_value=_FakeRecorderInstance()),
+        patch.object(
+            history, "statistics_during_period", side_effect=_stats_for({})
+        ),
+        _raw_history_patch(raw_states),
+    ):
+        result = await history._async_fetch_hourly_stat(
+            hass, "sensor.power", START, END, "max"
+        )
+
+    assert result == {_hour(0): 3000.0}
 
 
 async def test_build_hourly_samples_backfills_ambient_gaps_when_allowed(hass):

@@ -92,19 +92,51 @@ async def _async_fetch_hourly_from_raw_history(
     changes = await instance.async_add_executor_job(
         state_changes_during_period, hass, start, end, entity_id
     )
-    buckets: dict[datetime, list[float]] = {}
+    points: list[tuple[datetime, float]] = []
     for state in changes.get(entity_id, []):
         try:
             value = float(state.state)
         except (TypeError, ValueError):
             continue
-        hour = dt_util.as_utc(state.last_updated).replace(
-            minute=0, second=0, microsecond=0
-        )
-        buckets.setdefault(hour, []).append(value)
+        points.append((dt_util.as_utc(state.last_updated), value))
+    points.sort(key=lambda p: p[0])
+    if not points:
+        return {}
 
-    aggregate = max if stat_type == "max" else (lambda values: sum(values) / len(values))
-    return {hour: aggregate(values) for hour, values in buckets.items()}
+    if stat_type == "max":
+        # A genuinely quiet hour (no recorded point in it) has no evidence
+        # of what the peak was during it - unlike "mean" below, carrying a
+        # forward-filled value into it would understate a real spike that
+        # happened to fall in a gap, so only hours with an actual point are
+        # reported here.
+        buckets: dict[datetime, list[float]] = {}
+        for ts, value in points:
+            hour = ts.replace(minute=0, second=0, microsecond=0)
+            buckets.setdefault(hour, []).append(value)
+        return {hour: max(values) for hour, values in buckets.items()}
+
+    # "mean": forward-fill. Diagnosed live against a real gateway - a
+    # slowly-varying sensor (like water temperature) that hasn't reported a
+    # new state within a given hour overwhelmingly means the value simply
+    # hasn't changed (exactly why an MQTT-sourced sensor wouldn't
+    # republish), not that it's unknown for that hour. Sampling the last
+    # known value at each hour boundary - rather than only counting hours
+    # with a literal change event in them - turned a sparse ~20% delta-pair
+    # yield into near-complete coverage for a tub that changes temperature
+    # slowly for hours at a time.
+    result: dict[datetime, float] = {}
+    hour = dt_util.as_utc(start).replace(minute=0, second=0, microsecond=0)
+    end_hour = dt_util.as_utc(end).replace(minute=0, second=0, microsecond=0)
+    idx = 0
+    last_value: float | None = None
+    while hour <= end_hour:
+        while idx < len(points) and points[idx][0] <= hour:
+            last_value = points[idx][1]
+            idx += 1
+        if last_value is not None:
+            result[hour] = last_value
+        hour += timedelta(hours=1)
+    return result
 
 
 async def async_fetch_hourly_means(
