@@ -295,6 +295,14 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
     # --- model fitting ------------------------------------------------
 
     def _should_refit(self) -> bool:
+        # Until a model has fit successfully even once, retry every cycle
+        # rather than waiting out the normal 24h cadence - _last_fit is set
+        # unconditionally on every attempt (see _async_refit_model), so
+        # without this a single early failure (not enough history yet, which
+        # is the normal case right after setup) would block the next retry
+        # for a full day even once enough data existed well before that.
+        if self._model is None:
+            return True
         if self._last_fit is None:
             return True
         return dt_util.utcnow() - self._last_fit >= timedelta(
