@@ -239,6 +239,16 @@ class SpaMiserSensor(SpaMiserEntity, SensorEntity):
         self.entity_description = description
 
     @property
+    def suggested_object_id(self) -> str:
+        # Overridden: suggested_object_id otherwise slugifies the full
+        # translated display name (e.g. "Fitted loss coefficient",
+        # "Estimated water volume (sanity check)"), giving an entity_id that
+        # drifts from description.key and from what the README documents.
+        # Pinning it to the key keeps entity_id stable and predictable
+        # regardless of how verbose/descriptive the display name is.
+        return self.entity_description.key
+
+    @property
     def native_value(self):
         return self.entity_description.value_fn(self.coordinator.data)
 
