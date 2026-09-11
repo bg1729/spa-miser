@@ -150,6 +150,8 @@ SENSOR_DESCRIPTIONS: tuple[SpaMiserSensorDescription, ...] = (
         key="loss_coefficient",
         translation_key="loss_coefficient",
         entity_category=EntityCategory.DIAGNOSTIC,
+        # Fraction of the water-ambient temperature gap lost per hour.
+        native_unit_of_measurement="1/h",
         suggested_display_precision=4,
         value_fn=lambda d: d.model.loss_coefficient if d.model else None,
     ),
@@ -157,6 +159,9 @@ SENSOR_DESCRIPTIONS: tuple[SpaMiserSensorDescription, ...] = (
         key="wind_coefficient",
         translation_key="wind_coefficient",
         entity_category=EntityCategory.DIAGNOSTIC,
+        # Additional loss_coefficient per m/s of wind - same "per hour" basis,
+        # scaled by wind speed, hence the compound unit.
+        native_unit_of_measurement="1/h per m/s",
         suggested_display_precision=4,
         value_fn=lambda d: d.model.wind_coefficient if d.model else None,
     ),
@@ -164,6 +169,10 @@ SENSOR_DESCRIPTIONS: tuple[SpaMiserSensorDescription, ...] = (
         key="thermal_mass",
         translation_key="thermal_mass",
         entity_category=EntityCategory.DIAGNOSTIC,
+        # No device_class fits: this isn't an energy reading, it's a fitted
+        # capacity coefficient (kWh of heat input per °C of water temperature
+        # rise) - so just label the unit directly.
+        native_unit_of_measurement="kWh/°C",
         suggested_display_precision=2,
         value_fn=lambda d: d.model.thermal_mass_kwh_per_c if d.model else None,
     ),
