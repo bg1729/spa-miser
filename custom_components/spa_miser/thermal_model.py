@@ -17,6 +17,15 @@ import numpy as np
 
 ASSUMED_HEATER_EFFICIENCY = 0.95
 
+# Specific heat capacity of water: 4186 J/(kg*C), converted to kWh/(kg*C).
+# Used only to turn the fitted thermal mass into a volume sanity check - not
+# part of the fit itself.
+SPECIFIC_HEAT_WATER_KWH_PER_KG_C = 4186.0 / 3_600_000.0
+# Water density is ~992 kg/m3 at typical spa temperatures (35-40C) vs 1000
+# at 4C, a <1% difference - ignored here since this is a rough sanity check,
+# not a calibration input.
+WATER_DENSITY_KG_PER_LITER = 1.0
+
 # Guard against degenerate fits (e.g. too little data, or a period with no
 # temperature variation) producing nonsensical coefficients.
 MIN_SAMPLES_FOR_FIT = 24
@@ -85,6 +94,22 @@ def fit(samples: list[HourlySample]) -> ThermalModelParams | None:
         r_squared=r_squared,
         n_samples=len(samples),
     )
+
+
+def estimated_volume_liters(params: ThermalModelParams) -> float | None:
+    """Back out an implied water volume from the fitted thermal mass.
+
+    Not used by the model itself - purely a sanity check: thermal_mass_kwh_per_c
+    is the tub's fitted heat capacity, so dividing by water's specific heat
+    gives an implied mass (~volume) that should land somewhere near the tub's
+    actual rated capacity if the fit is trustworthy. A wildly off value (e.g.
+    a fraction of, or many times, the real capacity) is a sign the fit itself
+    is bad, independent of r_squared.
+    """
+    if params.thermal_mass_kwh_per_c is None:
+        return None
+    mass_kg = params.thermal_mass_kwh_per_c / SPECIFIC_HEAT_WATER_KWH_PER_KG_C
+    return mass_kg / WATER_DENSITY_KG_PER_LITER
 
 
 def predict_trajectory(

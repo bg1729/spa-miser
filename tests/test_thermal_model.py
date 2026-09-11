@@ -5,7 +5,12 @@ import math
 
 import pytest
 
-from custom_components.spa_miser.thermal_model import HourlySample, fit
+from custom_components.spa_miser.thermal_model import (
+    HourlySample,
+    ThermalModelParams,
+    estimated_volume_liters,
+    fit,
+)
 
 TRUE_LOSS = 0.06
 TRUE_WIND = 0.015
@@ -53,6 +58,31 @@ def test_fit_returns_none_with_too_few_samples():
     samples = _generate_samples(5)
 
     assert fit(samples) is None
+
+
+def _params(thermal_mass_kwh_per_c: float | None) -> ThermalModelParams:
+    return ThermalModelParams(
+        loss_coefficient=0.06,
+        wind_coefficient=0.015,
+        input_coefficient=0.45,
+        thermal_mass_kwh_per_c=thermal_mass_kwh_per_c,
+        r_squared=0.99,
+        n_samples=200,
+    )
+
+
+def test_estimated_volume_liters_matches_known_capacity():
+    # A real ~1500L tub's heat capacity, via water's specific heat
+    # (4186 J/kg/C): 1500 kg * 4186 J/kg/C / 3.6e6 J/kWh ~= 1.744 kWh/C.
+    params = _params(thermal_mass_kwh_per_c=1.744)
+
+    assert estimated_volume_liters(params) == pytest.approx(1500.0, rel=1e-2)
+
+
+def test_estimated_volume_liters_none_when_thermal_mass_unknown():
+    params = _params(thermal_mass_kwh_per_c=None)
+
+    assert estimated_volume_liters(params) is None
 
 
 def test_fit_clips_pathological_loss_coefficient():

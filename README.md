@@ -121,6 +121,7 @@ device page can.
 | `sensor.spa_miser_configured_sources` | Which entity is wired to each role (state = count configured; attributes = the full mapping) |
 | `sensor.spa_miser_price_slots_available` | How many forecast price slots the price source returned |
 | `sensor.spa_miser_loss_coefficient` / `wind_coefficient` / `thermal_mass` / `model_fit_quality` | Fitted thermal model internals - see [Thermal model diagnostics](#example-dashboard) |
+| `sensor.spa_miser_estimated_water_volume` | Implied tub volume from the fitted thermal mass - a sanity check, not a model input |
 
 ## Example dashboard
 
@@ -183,7 +184,14 @@ cards:
       - entity: sensor.spa_miser_wind_coefficient
       - entity: sensor.spa_miser_thermal_mass
       - entity: sensor.spa_miser_model_fit_quality
+      - entity: sensor.spa_miser_estimated_water_volume
 ```
+
+`estimated_water_volume` isn't used by the model itself - it's a plain-English
+sanity check, backing out an implied water volume from the fitted thermal
+mass (via water's specific heat capacity). If it's wildly off from the tub's
+actual rated capacity, that's a much easier way to spot a bad fit than
+squinting at `model_fit_quality` alone.
 
 The fitted coefficients above are kept separate from the day-to-day cards -
 they're only useful when judging whether the model's fit is trustworthy

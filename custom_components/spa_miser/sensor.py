@@ -11,7 +11,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfEnergy, UnitOfTemperature
+from homeassistant.const import UnitOfEnergy, UnitOfTemperature, UnitOfVolume
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -29,6 +29,7 @@ from .const import (
 )
 from .coordinator import SpaMiserCoordinator, SpaMiserData
 from .entity import SpaMiserEntity
+from .thermal_model import estimated_volume_liters
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -182,6 +183,20 @@ SENSOR_DESCRIPTIONS: tuple[SpaMiserSensorDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         suggested_display_precision=2,
         value_fn=lambda d: d.model.r_squared if d.model else None,
+    ),
+    # Not used by the model itself - a sanity check for the fit as a whole.
+    # An implied volume wildly off from the tub's actual rated capacity
+    # (e.g. a few hundred litres, or tens of thousands) is a much more
+    # legible red flag for a bad fit than staring at model_fit_quality alone.
+    SpaMiserSensorDescription(
+        key="estimated_water_volume",
+        translation_key="estimated_water_volume",
+        device_class=SensorDeviceClass.VOLUME_STORAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfVolume.LITERS,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        suggested_display_precision=0,
+        value_fn=lambda d: estimated_volume_liters(d.model) if d.model else None,
     ),
 )
 
