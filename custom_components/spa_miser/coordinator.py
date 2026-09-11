@@ -16,6 +16,7 @@ from .const import (
     CONF_CLIMATE_ENTITY,
     CONF_ENABLED,
     CONF_ENERGY_ENTITY,
+    CONF_HEATING_STATE_ENTITY,
     CONF_MANUAL_CHEAP_HOURS,
     CONF_MANUAL_CHEAP_RATE,
     CONF_MANUAL_OVERRIDE_MINUTES,
@@ -82,6 +83,12 @@ class SpaMiserData:
     # as actually wired up and returning real data immediately.
     current_price: float | None = None
     price_slots_count: int = 0
+    # Raw current readings of the configured input entities, so what
+    # spa-miser is actually seeing can be checked at a glance rather than
+    # cross-referencing sensor.spa_miser_configured_sources' entity_ids
+    # against those entities' own states elsewhere in HA.
+    heating_state: str | None = None
+    outdoor_temperature_c: float | None = None
 
 
 class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
@@ -243,11 +250,15 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
         predicted_kwh = self._estimate_predicted_kwh_today(forecast)
         actual_kwh = self._read_actual_kwh_today()
         cost_saved = self._estimate_cost_saved_today(price_slots, actual_kwh, ceiling)
+        heating_state = self._read_state_string(self.entry.data.get(CONF_HEATING_STATE_ENTITY))
+        outdoor_temp = self._read_state_float(self.entry.data.get(CONF_OUTDOOR_TEMP_SENSOR))
 
         return SpaMiserData(
             model=self._model,
             model_temperature_c=model_temp,
             current_temperature_c=current_temp,
+            heating_state=heating_state,
+            outdoor_temperature_c=outdoor_temp,
             decision=decision,
             predicted_kwh_today=predicted_kwh,
             actual_kwh_today=actual_kwh,
@@ -357,7 +368,15 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
 
     # --- reporting helpers ---------------------------------------------
 
-    def _read_state_float(self, entity_id: str, attribute: str | None = None) -> float | None:
+    def _read_state_float(
+        self, entity_id: str | None, attribute: str | None = None
+    ) -> float | None:
+        # entity_id is None whenever an optional field (e.g. outdoor temp
+        # sensor) isn't configured - hass.states.get(None) isn't just "not
+        # found", it raises (it calls entity_id.lower() internally), so this
+        # must short-circuit before reaching it.
+        if not entity_id:
+            return None
         state = self.hass.states.get(entity_id)
         if state is None:
             return None
@@ -366,6 +385,14 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
             return float(value)
         except (TypeError, ValueError):
             return None
+
+    def _read_state_string(self, entity_id: str | None) -> str | None:
+        if not entity_id:
+            return None
+        state = self.hass.states.get(entity_id)
+        if state is None or state.state in ("unknown", "unavailable"):
+            return None
+        return state.state
 
     def _predict_model_temperature(
         self, current_temp: float | None, forecast: list[ForecastPoint]

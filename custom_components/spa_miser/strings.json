@@ -54,6 +54,9 @@
   },
   "entity": {
     "sensor": {
+      "water_temperature": { "name": "Water temperature" },
+      "heating_state": { "name": "Heating state" },
+      "outdoor_temperature": { "name": "Outdoor temperature" },
       "model_temperature": { "name": "Model temperature" },
       "predicted_kwh_today": { "name": "Predicted kWh today" },
       "actual_kwh_today": { "name": "Actual kWh today" },

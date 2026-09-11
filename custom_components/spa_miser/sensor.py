@@ -37,6 +37,33 @@ class SpaMiserSensorDescription(SensorEntityDescription):
 
 
 SENSOR_DESCRIPTIONS: tuple[SpaMiserSensorDescription, ...] = (
+    # Raw current readings of the configured inputs - what spa-miser is
+    # actually seeing right now, without cross-referencing entity_ids from
+    # sensor.spa_miser_configured_sources against those entities elsewhere.
+    SpaMiserSensorDescription(
+        key="water_temperature",
+        translation_key="water_temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        suggested_display_precision=1,
+        value_fn=lambda d: d.current_temperature_c,
+    ),
+    SpaMiserSensorDescription(
+        key="heating_state",
+        translation_key="heating_state",
+        icon="mdi:fire",
+        value_fn=lambda d: d.heating_state,
+    ),
+    SpaMiserSensorDescription(
+        key="outdoor_temperature",
+        translation_key="outdoor_temperature",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
+        suggested_display_precision=1,
+        value_fn=lambda d: d.outdoor_temperature_c,
+    ),
     SpaMiserSensorDescription(
         key="model_temperature",
         translation_key="model_temperature",
