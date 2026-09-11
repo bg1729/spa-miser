@@ -26,6 +26,13 @@
           "octopus_current_day_rates_entity": "\"Current day rates\" event entity"
         }
       },
+      "octopus_public": {
+        "title": "Octopus Agile public rates",
+        "description": "Pulls Agile rates directly from Octopus's public API - no Octopus account or Agile subscription needed. Useful for scheduling around Agile pricing even while billed on a different tariff.",
+        "data": {
+          "octopus_region": "Electricity region"
+        }
+      },
       "manual_price": {
         "title": "Manual cheap-hours schedule",
         "data": {
@@ -39,7 +46,8 @@
   "selector": {
     "price_source": {
       "options": {
-        "octopus_agile": "Octopus Agile",
+        "octopus_agile": "Octopus Agile (your account)",
+        "octopus_agile_public": "Octopus Agile (public rates, any tariff)",
         "manual": "Manual cheap-hours schedule"
       }
     }

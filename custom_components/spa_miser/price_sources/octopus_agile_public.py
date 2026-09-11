@@ -1,0 +1,116 @@
+"""Price source adapter reading Agile rates from Octopus's public API.
+
+Unlike octopus_agile.py (which reads the BottlecapDave integration's event
+entities and therefore reflects whatever tariff the user is actually billed
+on), this hits https://api.octopus.energy/v1/ directly - no Octopus account,
+API key, or Agile subscription required. It lets the decision engine
+schedule against real regional Agile pricing even for a user on a different
+real tariff, to "mirror Agile behaviour" without switching.
+"""
+from __future__ import annotations
+
+import logging
+from datetime import datetime, timedelta
+
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.util import dt as dt_util
+
+from . import PriceSlot, PriceSource
+
+_LOGGER = logging.getLogger(__name__)
+
+PRODUCTS_URL = "https://api.octopus.energy/v1/products/"
+RATES_URL_TEMPLATE = (
+    "https://api.octopus.energy/v1/products/{product_code}/electricity-tariffs/"
+    "E-1R-{product_code}-{region}/standard-unit-rates/"
+)
+PENCE_PER_POUND = 100.0
+FORECAST_HOURS = 48
+# How long to trust a discovered "current Agile product code" before
+# re-checking - Octopus rotates the active Agile product every few months,
+# not every request.
+PRODUCT_CACHE_MINUTES = 60
+REQUEST_TIMEOUT_SECONDS = 10
+
+
+class OctopusAgilePublicPriceSource(PriceSource):
+    """Reads forecast Agile rates from Octopus's public product API."""
+
+    def __init__(self, region: str) -> None:
+        self._region = region.upper()
+        self._cached_product_code: str | None = None
+        self._cached_at: datetime | None = None
+
+    async def _async_get_active_product_code(self, hass: HomeAssistant) -> str | None:
+        now = dt_util.utcnow()
+        if (
+            self._cached_product_code is not None
+            and self._cached_at is not None
+            and now - self._cached_at < timedelta(minutes=PRODUCT_CACHE_MINUTES)
+        ):
+            return self._cached_product_code
+
+        session = async_get_clientsession(hass)
+        try:
+            response = await session.get(PRODUCTS_URL, timeout=REQUEST_TIMEOUT_SECONDS)
+            response.raise_for_status()
+            data = await response.json()
+        except Exception:  # noqa: BLE001 - network/API failures shouldn't crash the coordinator
+            _LOGGER.exception("Failed to fetch Octopus product list")
+            return self._cached_product_code  # fall back to last-known-good, if any
+
+        # Product codes are date-stamped (e.g. AGILE-24-10-01); among
+        # currently-active Agile products, the lexicographically greatest
+        # code is the newest.
+        candidates = sorted(
+            p["code"]
+            for p in data.get("results", [])
+            if p.get("code", "").startswith("AGILE-") and p.get("available_to") is None
+        )
+        if not candidates:
+            _LOGGER.warning("No currently-active Octopus Agile product found")
+            return self._cached_product_code
+
+        self._cached_product_code = candidates[-1]
+        self._cached_at = now
+        return self._cached_product_code
+
+    async def async_get_forecast(self, hass: HomeAssistant) -> list[PriceSlot]:
+        product_code = await self._async_get_active_product_code(hass)
+        if product_code is None:
+            return []
+
+        now = dt_util.utcnow()
+        url = RATES_URL_TEMPLATE.format(product_code=product_code, region=self._region)
+        params = {
+            "period_from": now.isoformat(),
+            "period_to": (now + timedelta(hours=FORECAST_HOURS)).isoformat(),
+        }
+
+        session = async_get_clientsession(hass)
+        try:
+            response = await session.get(
+                url, params=params, timeout=REQUEST_TIMEOUT_SECONDS
+            )
+            response.raise_for_status()
+            data = await response.json()
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("Failed to fetch Octopus Agile public rates from %s", url)
+            return []
+
+        slots: list[PriceSlot] = []
+        for item in data.get("results", []):
+            try:
+                start = dt_util.parse_datetime(item["valid_from"])
+                end = dt_util.parse_datetime(item["valid_to"])
+                price = float(item["value_inc_vat"]) / PENCE_PER_POUND
+            except (KeyError, TypeError, ValueError):
+                _LOGGER.debug("Skipping unparseable Agile rate entry: %s", item)
+                continue
+            if start is None or end is None:
+                continue
+            slots.append(PriceSlot(start=start, end=end, price=price))
+
+        slots.sort(key=lambda s: s.start)
+        return slots

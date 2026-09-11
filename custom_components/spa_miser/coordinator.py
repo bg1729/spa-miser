@@ -24,6 +24,7 @@ from .const import (
     CONF_MIN_AWAY_TEMP,
     CONF_MIN_COMFORT_TEMP,
     CONF_OCTOPUS_CURRENT_DAY_RATES_ENTITY,
+    CONF_OCTOPUS_REGION,
     CONF_OUTDOOR_TEMP_SENSOR,
     CONF_POWER_ENTITY,
     CONF_PRICE_SOURCE,
@@ -47,11 +48,13 @@ from .const import (
     PRESET_HIGH_RANGE,
     PRESET_LOW_RANGE,
     PRICE_SOURCE_OCTOPUS_AGILE,
+    PRICE_SOURCE_OCTOPUS_AGILE_PUBLIC,
 )
 from .decision_engine import Decision, ForecastPoint, decide
 from .price_sources import PriceSlot, PriceSource
 from .price_sources.manual import ManualPriceSource
 from .price_sources.octopus_agile import OctopusAgilePriceSource
+from .price_sources.octopus_agile_public import OctopusAgilePublicPriceSource
 from .spa_control import SpaControl
 from .thermal_model import ThermalModelParams
 from .thermal_model import fit as fit_model
@@ -183,10 +186,13 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
     # --- price source --------------------------------------------------
 
     def _build_price_source(self) -> PriceSource:
-        if self.entry.data[CONF_PRICE_SOURCE] == PRICE_SOURCE_OCTOPUS_AGILE:
+        price_source = self.entry.data[CONF_PRICE_SOURCE]
+        if price_source == PRICE_SOURCE_OCTOPUS_AGILE:
             return OctopusAgilePriceSource(
                 self.entry.data[CONF_OCTOPUS_CURRENT_DAY_RATES_ENTITY]
             )
+        if price_source == PRICE_SOURCE_OCTOPUS_AGILE_PUBLIC:
+            return OctopusAgilePublicPriceSource(self.entry.data[CONF_OCTOPUS_REGION])
         return ManualPriceSource(
             self.entry.data.get(CONF_MANUAL_CHEAP_HOURS, DEFAULT_MANUAL_CHEAP_HOURS),
             self.entry.data.get(CONF_MANUAL_CHEAP_RATE, DEFAULT_MANUAL_CHEAP_RATE),

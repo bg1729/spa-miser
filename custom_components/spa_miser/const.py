@@ -27,6 +27,10 @@ CONF_OUTDOOR_TEMP_SENSOR = "outdoor_temp_sensor"
 CONF_WIND_SPEED_SENSOR = "wind_speed_sensor"
 CONF_PRICE_SOURCE = "price_source"
 CONF_OCTOPUS_CURRENT_DAY_RATES_ENTITY = "octopus_current_day_rates_entity"
+# For the public-API Agile source: a GSP region letter (A-P), independent of
+# any Octopus account - lets the decision engine schedule against real Agile
+# pricing even for a user who isn't actually on the Agile tariff.
+CONF_OCTOPUS_REGION = "octopus_region"
 CONF_MANUAL_CHEAP_HOURS = "manual_cheap_hours"
 CONF_MANUAL_CHEAP_RATE = "manual_cheap_rate"
 CONF_MANUAL_STANDARD_RATE = "manual_standard_rate"
@@ -35,9 +39,32 @@ DEFAULT_MANUAL_CHEAP_HOURS = [0, 1, 2, 3, 4, 5]
 DEFAULT_MANUAL_CHEAP_RATE = 0.15
 DEFAULT_MANUAL_STANDARD_RATE = 0.30
 
+# GSP Group ID letters used throughout Octopus's public API and tariff codes.
+OCTOPUS_REGIONS: dict[str, str] = {
+    "A": "Eastern England",
+    "B": "East Midlands",
+    "C": "London",
+    "D": "North Wales, Merseyside and Cheshire",
+    "E": "West Midlands",
+    "F": "North East England",
+    "G": "North West England",
+    "H": "Southern England",
+    "J": "South East England",
+    "K": "South Wales",
+    "L": "South West England",
+    "M": "Yorkshire",
+    "N": "South Scotland",
+    "P": "North Scotland",
+}
+
 PRICE_SOURCE_OCTOPUS_AGILE = "octopus_agile"
+PRICE_SOURCE_OCTOPUS_AGILE_PUBLIC = "octopus_agile_public"
 PRICE_SOURCE_MANUAL = "manual"
-PRICE_SOURCES = [PRICE_SOURCE_OCTOPUS_AGILE, PRICE_SOURCE_MANUAL]
+PRICE_SOURCES = [
+    PRICE_SOURCE_OCTOPUS_AGILE,
+    PRICE_SOURCE_OCTOPUS_AGILE_PUBLIC,
+    PRICE_SOURCE_MANUAL,
+]
 
 # --- Options keys (adjustable after setup, also mirrored as number entities) ---
 CONF_MAX_COMFORT_TEMP = "max_comfort_temp"

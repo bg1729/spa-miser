@@ -25,6 +25,7 @@ from .const import (
     CONF_MIN_AWAY_TEMP,
     CONF_MIN_COMFORT_TEMP,
     CONF_OCTOPUS_CURRENT_DAY_RATES_ENTITY,
+    CONF_OCTOPUS_REGION,
     CONF_OUTDOOR_TEMP_SENSOR,
     CONF_POWER_ENTITY,
     CONF_PRICE_SOURCE,
@@ -39,8 +40,10 @@ from .const import (
     DEFAULT_MIN_AWAY_TEMP,
     DEFAULT_MIN_COMFORT_TEMP,
     DOMAIN,
+    OCTOPUS_REGIONS,
     PRICE_SOURCE_MANUAL,
     PRICE_SOURCE_OCTOPUS_AGILE,
+    PRICE_SOURCE_OCTOPUS_AGILE_PUBLIC,
     TEMP_MAX,
     TEMP_MIN,
     TEMP_STEP,
@@ -95,7 +98,11 @@ STEP_USER_SCHEMA = vol.Schema(
         ),
         vol.Required(CONF_PRICE_SOURCE, default=PRICE_SOURCE_OCTOPUS_AGILE): selector.SelectSelector(
             selector.SelectSelectorConfig(
-                options=[PRICE_SOURCE_OCTOPUS_AGILE, PRICE_SOURCE_MANUAL],
+                options=[
+                    PRICE_SOURCE_OCTOPUS_AGILE,
+                    PRICE_SOURCE_OCTOPUS_AGILE_PUBLIC,
+                    PRICE_SOURCE_MANUAL,
+                ],
                 translation_key="price_source",
             )
         ),
@@ -105,6 +112,19 @@ STEP_USER_SCHEMA = vol.Schema(
 STEP_OCTOPUS_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_OCTOPUS_CURRENT_DAY_RATES_ENTITY): _entity_selector("event"),
+    }
+)
+
+STEP_OCTOPUS_PUBLIC_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_OCTOPUS_REGION): selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=[
+                    selector.SelectOptionDict(value=letter, label=f"{name} ({letter})")
+                    for letter, name in OCTOPUS_REGIONS.items()
+                ],
+            )
+        ),
     }
 )
 
@@ -144,8 +164,11 @@ class SpaMiserConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> Any:
         if user_input is not None:
             self._user_data = user_input
-            if user_input[CONF_PRICE_SOURCE] == PRICE_SOURCE_OCTOPUS_AGILE:
+            price_source = user_input[CONF_PRICE_SOURCE]
+            if price_source == PRICE_SOURCE_OCTOPUS_AGILE:
                 return await self.async_step_octopus()
+            if price_source == PRICE_SOURCE_OCTOPUS_AGILE_PUBLIC:
+                return await self.async_step_octopus_public()
             return await self.async_step_manual_price()
 
         return self.async_show_form(step_id="user", data_schema=STEP_USER_SCHEMA)
@@ -157,6 +180,16 @@ class SpaMiserConfigFlow(ConfigFlow, domain=DOMAIN):
             data = {**self._user_data, **user_input}
             return self._async_create(data)
         return self.async_show_form(step_id="octopus", data_schema=STEP_OCTOPUS_SCHEMA)
+
+    async def async_step_octopus_public(
+        self, user_input: dict[str, Any] | None = None
+    ) -> Any:
+        if user_input is not None:
+            data = {**self._user_data, **user_input}
+            return self._async_create(data)
+        return self.async_show_form(
+            step_id="octopus_public", data_schema=STEP_OCTOPUS_PUBLIC_SCHEMA
+        )
 
     async def async_step_manual_price(
         self, user_input: dict[str, Any] | None = None

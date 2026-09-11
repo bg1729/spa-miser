@@ -16,6 +16,7 @@ from custom_components.spa_miser.const import (
     CONF_MIN_AWAY_TEMP,
     CONF_MIN_COMFORT_TEMP,
     CONF_OCTOPUS_CURRENT_DAY_RATES_ENTITY,
+    CONF_OCTOPUS_REGION,
     CONF_POWER_ENTITY,
     CONF_PRICE_SOURCE,
     CONF_WATER_TEMP_SENSOR,
@@ -23,6 +24,7 @@ from custom_components.spa_miser.const import (
     DOMAIN,
     PRICE_SOURCE_MANUAL,
     PRICE_SOURCE_OCTOPUS_AGILE,
+    PRICE_SOURCE_OCTOPUS_AGILE_PUBLIC,
 )
 
 BASE_USER_INPUT = {
@@ -68,6 +70,27 @@ async def test_octopus_flow_creates_entry(
         result["data"][CONF_OCTOPUS_CURRENT_DAY_RATES_ENTITY]
         == "event.octopus_energy_electricity_1234_5678_current_day_rates"
     )
+
+
+async def test_octopus_public_flow_creates_entry(
+    hass: HomeAssistant, enable_custom_integrations: None
+) -> None:
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {**BASE_USER_INPUT, CONF_PRICE_SOURCE: PRICE_SOURCE_OCTOPUS_AGILE_PUBLIC},
+    )
+    assert result["step_id"] == "octopus_public"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_OCTOPUS_REGION: "L"}
+    )
+
+    assert result["type"] == "create_entry"
+    assert result["data"][CONF_PRICE_SOURCE] == PRICE_SOURCE_OCTOPUS_AGILE_PUBLIC
+    assert result["data"][CONF_OCTOPUS_REGION] == "L"
 
 
 async def test_manual_price_flow_creates_entry(
