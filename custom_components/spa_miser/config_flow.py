@@ -48,8 +48,15 @@ from .const import (
 
 
 def _entity_selector(domain: str, device_class: str | None = None) -> selector.EntitySelector:
+    # domain/device_class must be passed as lists: the picker's frontend
+    # filtering treats a bare string as an iterable of characters rather than
+    # a single value, which silently matches nothing ("No items available")
+    # even when qualifying entities exist.
     return selector.EntitySelector(
-        selector.EntitySelectorConfig(domain=domain, device_class=device_class)
+        selector.EntitySelectorConfig(
+            domain=[domain],
+            device_class=[device_class] if device_class else None,
+        )
     )
 
 

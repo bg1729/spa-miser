@@ -101,14 +101,22 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
 
         self._enabled: bool = entry.options.get(CONF_ENABLED, DEFAULT_ENABLED)
         self._away_mode: bool = entry.options.get(CONF_AWAY_MODE, DEFAULT_AWAY_MODE)
+        # Comfort temps are set once in entry.data by the config flow, then
+        # potentially overridden live via the number entities into
+        # entry.options (see _persist_option). Options - the more recent of
+        # the two - must win, falling back to the setup-time value, falling
+        # back to the hardcoded default only if neither is present.
         self._max_comfort_c: float = entry.options.get(
-            CONF_MAX_COMFORT_TEMP, DEFAULT_MAX_COMFORT_TEMP
+            CONF_MAX_COMFORT_TEMP,
+            entry.data.get(CONF_MAX_COMFORT_TEMP, DEFAULT_MAX_COMFORT_TEMP),
         )
         self._min_comfort_c: float = entry.options.get(
-            CONF_MIN_COMFORT_TEMP, DEFAULT_MIN_COMFORT_TEMP
+            CONF_MIN_COMFORT_TEMP,
+            entry.data.get(CONF_MIN_COMFORT_TEMP, DEFAULT_MIN_COMFORT_TEMP),
         )
         self._min_away_c: float = entry.options.get(
-            CONF_MIN_AWAY_TEMP, DEFAULT_MIN_AWAY_TEMP
+            CONF_MIN_AWAY_TEMP,
+            entry.data.get(CONF_MIN_AWAY_TEMP, DEFAULT_MIN_AWAY_TEMP),
         )
 
         self._energy_day: date | None = None
