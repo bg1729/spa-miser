@@ -31,7 +31,9 @@ from custom_components.spa_miser.thermal_model import ThermalModelParams
 CLIMATE_ENTITY = "climate.balboa_spa"
 
 
-async def test_enabled_coordinator_drives_climate_entity(hass: HomeAssistant, enable_custom_integrations):
+async def test_enabled_coordinator_drives_climate_entity(
+    recorder_mock, hass: HomeAssistant, enable_custom_integrations
+):
     # dt_util's default time zone is only set once the hass fixture has
     # configured the test instance, so "current hour" must be computed here
     # rather than at module import time (computing it earlier drove a flaky

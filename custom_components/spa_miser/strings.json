@@ -68,7 +68,8 @@
       "wind_coefficient": { "name": "Fitted wind coefficient" },
       "thermal_mass": { "name": "Estimated thermal mass" },
       "model_fit_quality": { "name": "Model fit quality (R²)" },
-      "configured_sources": { "name": "Configured sources" }
+      "configured_sources": { "name": "Configured sources" },
+      "daily_strategy": { "name": "Daily strategy" }
     },
     "binary_sensor": {
       "heating_recommended": { "name": "Heating recommended" }

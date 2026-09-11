@@ -10,6 +10,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
+import pytest
+
 from custom_components.spa_miser import history
 
 START = datetime(2026, 1, 1, tzinfo=timezone.utc)
@@ -30,8 +32,12 @@ def _stats_for(values_by_entity: dict[str, dict[int, float]]):
         result = {}
         for entity_id in entity_ids:
             hourly = values_by_entity.get(entity_id, {})
+            # Real rows only carry the requested stat type(s), but reporting
+            # both here is harmless and lets this one fixture serve tests
+            # that query "mean" and tests that query "max".
             result[entity_id] = [
-                {"start": _hour(i), "mean": value} for i, value in hourly.items()
+                {"start": _hour(i), "mean": value, "max": value}
+                for i, value in hourly.items()
             ]
         return result
 
@@ -122,3 +128,44 @@ async def test_build_hourly_samples_skips_hours_missing_power_data(hass):
     assert len(samples) == 1
     assert samples[0].water_temp_c == 38.0
     assert samples[0].heater_power_kw == 3.0
+
+
+async def test_estimate_heater_power_kw_uses_high_percentile_of_hourly_max(hass):
+    # Mostly-idle standby draw (~50W), with a clear minority of hours (20%)
+    # the heater actually fired (3000W) - comfortably past the 90th
+    # percentile's boundary (at exactly 10% the interpolation blends the
+    # two bands rather than cleanly landing on either).
+    power_w = {i: 50.0 for i in range(24)}
+    power_w.update({i: 3000.0 for i in range(24, 30)})
+
+    with (
+        patch.object(history, "get_instance", return_value=_FakeRecorderInstance()),
+        patch.object(
+            history,
+            "statistics_during_period",
+            side_effect=_stats_for({"sensor.power": power_w}),
+        ),
+    ):
+        estimate = await history.async_estimate_heater_power_kw(
+            hass, power_entity="sensor.power", start=START, end=START + timedelta(hours=30)
+        )
+
+    assert estimate == pytest.approx(3.0, rel=0.05)
+
+
+async def test_estimate_heater_power_kw_falls_back_with_too_little_history(hass):
+    power_w = {i: 3000.0 for i in range(5)}  # well under MIN_HOURS_FOR_POWER_ESTIMATE
+
+    with (
+        patch.object(history, "get_instance", return_value=_FakeRecorderInstance()),
+        patch.object(
+            history,
+            "statistics_during_period",
+            side_effect=_stats_for({"sensor.power": power_w}),
+        ),
+    ):
+        estimate = await history.async_estimate_heater_power_kw(
+            hass, power_entity="sensor.power", start=START, end=START + timedelta(hours=5)
+        )
+
+    assert estimate == history.DEFAULT_HEATER_POWER_KW

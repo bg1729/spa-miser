@@ -57,9 +57,16 @@ from .price_sources.manual import ManualPriceSource
 from .price_sources.octopus_agile import OctopusAgilePriceSource
 from .price_sources.octopus_agile_public import OctopusAgilePublicPriceSource
 from .spa_control import SpaControl
+from .strategy import DailyStrategy, compute_strategy
 from .thermal_model import ThermalModelParams
 from .thermal_model import fit as fit_model
 from .thermal_model import predict_trajectory
+
+# A new plan is only worth recomputing when the price forecast has grown by
+# meaningfully more than this - avoids re-triggering on tiny/noise coverage
+# differences between ticks, while still reliably catching "tomorrow's
+# Agile rates just published" (which extends coverage by ~24h).
+STRATEGY_RECOMPUTE_COVERAGE_MARGIN_HOURS = 1
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -113,6 +120,8 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
 
         self._model: ThermalModelParams | None = None
         self._last_fit: datetime | None = None
+        self._strategy: DailyStrategy | None = None
+        self._heater_power_kw: float = history.DEFAULT_HEATER_POWER_KW
 
         self._enabled: bool = entry.options.get(CONF_ENABLED, DEFAULT_ENABLED)
         self._away_mode: bool = entry.options.get(CONF_AWAY_MODE, DEFAULT_AWAY_MODE)
@@ -164,6 +173,17 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
     @property
     def min_away_c(self) -> float:
         return self._min_away_c
+
+    @property
+    def strategy(self) -> DailyStrategy | None:
+        """The current committed daily plan, if one has been computed yet.
+
+        Read directly by sensor.py (not routed through SpaMiserData) - same
+        pattern as entry.data for configured_sources: it changes far less
+        often than every coordinator tick, so there's no need to copy it
+        into the per-tick snapshot.
+        """
+        return self._strategy
 
     async def async_set_enabled(self, value: bool) -> None:
         self._enabled = value
@@ -226,17 +246,10 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
         floor = self._min_away_c if self._away_mode else self._min_comfort_c
         ceiling = self._max_comfort_c
 
-        decision: Decision | None = None
-        if self._model is not None and current_temp is not None and forecast:
-            decision = decide(
-                now=dt_util.utcnow(),
-                current_temp_c=current_temp,
-                floor_c=floor,
-                ceiling_c=ceiling,
-                forecast=forecast,
-                price_slots=price_slots,
-                model=self._model,
-            )
+        if self._should_recompute_strategy(price_slots):
+            await self._async_recompute_strategy(current_temp, floor, ceiling, forecast, price_slots)
+
+        decision = self._decide(current_temp, floor, ceiling, forecast, price_slots)
 
         if (
             self._enabled
@@ -291,6 +304,100 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
             await self.spa_control.async_set_heat_enabled(True)
         elif not decision.heat_recommended and heat_on:
             await self.spa_control.async_set_heat_enabled(False)
+
+    # --- daily strategy --------------------------------------------------
+
+    def _decide(
+        self,
+        current_temp: float | None,
+        floor: float,
+        ceiling: float,
+        forecast: list[ForecastPoint],
+        price_slots: list[PriceSlot],
+    ) -> Decision | None:
+        """What to do right now: the committed plan's slot if one covers
+        "now", falling back to the greedy per-tick heuristic (decide()) when
+        no plan is available yet - e.g. before the first successful model
+        fit, or before enough price/weather data exists to compute one."""
+        if self._strategy is not None:
+            slot = self._strategy.slot_at(dt_util.utcnow())
+            if slot is not None:
+                action = "heat" if slot.heat_on else "coast"
+                return Decision(
+                    heat_recommended=slot.heat_on,
+                    reason=f"daily strategy: {action} (plan targets {slot.planned_temp_c:.1f}°C)",
+                    floor_breach_hours=None,
+                    cheap_price_threshold=None,
+                    current_price=slot.price,
+                )
+        if self._model is not None and current_temp is not None and forecast:
+            return decide(
+                now=dt_util.utcnow(),
+                current_temp_c=current_temp,
+                floor_c=floor,
+                ceiling_c=ceiling,
+                forecast=forecast,
+                price_slots=price_slots,
+                model=self._model,
+            )
+        return None
+
+    def _should_recompute_strategy(self, price_slots: list[PriceSlot]) -> bool:
+        if self._model is None or not price_slots:
+            return False
+        if self._strategy is None:
+            return True
+        now = dt_util.utcnow()
+        strategy_end = self._strategy.end
+        if strategy_end is None or now >= strategy_end:
+            return True  # the committed plan no longer covers "now"
+        latest_price_end = max(s.end for s in price_slots)
+        margin = timedelta(hours=STRATEGY_RECOMPUTE_COVERAGE_MARGIN_HOURS)
+        return latest_price_end > strategy_end + margin
+
+    async def _async_recompute_strategy(
+        self,
+        current_temp: float | None,
+        floor: float,
+        ceiling: float,
+        forecast: list[ForecastPoint],
+        price_slots: list[PriceSlot],
+    ) -> None:
+        if current_temp is None or not forecast or self._model is None:
+            return
+        # Refit right before committing to a new plan, in addition to the
+        # normal 24h timer, so each day's plan uses the freshest model.
+        await self._async_refit_model()
+        if self._model is None:
+            return
+
+        self._heater_power_kw = await history.async_estimate_heater_power_kw(
+            self.hass,
+            power_entity=self.entry.data[CONF_POWER_ENTITY],
+            start=dt_util.utcnow() - timedelta(days=MODEL_FIT_LOOKBACK_DAYS),
+            end=dt_util.utcnow(),
+        )
+
+        strategy = compute_strategy(
+            now=dt_util.utcnow(),
+            current_temp_c=current_temp,
+            floor_c=floor,
+            ceiling_c=ceiling,
+            forecast=forecast,
+            price_slots=price_slots,
+            model=self._model,
+            heater_power_kw=self._heater_power_kw,
+        )
+        if strategy is None:
+            _LOGGER.warning("Could not compute a daily strategy (insufficient forecast data)")
+            return
+        self._strategy = strategy
+        _LOGGER.info(
+            "Computed new daily strategy: %d slots, %d heat-on, heater_power_kw=%.2f",
+            len(strategy.slots),
+            sum(1 for s in strategy.slots if s.heat_on),
+            self._heater_power_kw,
+        )
 
     # --- model fitting ------------------------------------------------
 
@@ -411,7 +518,7 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
         power_kw = (
             0.0
             if not heat_on or self._model.input_coefficient <= 0
-            else 3.0  # nominal heater rating fallback; refined once power stats exist
+            else self._heater_power_kw
         )
         trajectory = predict_trajectory(
             self._model,
@@ -424,13 +531,27 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
         return trajectory[0] if trajectory else None
 
     def _estimate_predicted_kwh_today(self, forecast: list[ForecastPoint]) -> float | None:
-        """Rough estimate: energy needed to replace heat lost over the rest of today.
+        """Energy needed for the rest of today.
 
-        This assumes the tub is held near the middle of the comfort band
-        rather than simulating the exact on/off schedule - a deliberately
-        simple v1 approximation, not a full re-simulation of the decision
-        engine's output.
+        When a daily strategy exists, this sums the plan's actual remaining
+        heat-on slots for today - precise, since it's the same schedule the
+        coordinator is following. Otherwise falls back to a rough heuristic
+        (energy to replace heat lost while held near mid-band) for the
+        window before the first plan is ever computed.
         """
+        if self._strategy is not None:
+            now = dt_util.utcnow()
+            today_local = dt_util.now().date()
+            total_kwh = 0.0
+            for slot in self._strategy.slots:
+                if not slot.heat_on or slot.end <= now:
+                    continue
+                if dt_util.as_local(slot.start).date() != today_local:
+                    continue
+                dt_hours = (slot.end - slot.start).total_seconds() / 3600.0
+                total_kwh += self._heater_power_kw * dt_hours
+            return total_kwh
+
         if self._model is None or not forecast or self._model.input_coefficient <= 0:
             return None
         now_local = dt_util.now()

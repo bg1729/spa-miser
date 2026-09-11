@@ -13,11 +13,15 @@ via MQTT + Home Assistant discovery) and:
 - **Holds temperature in a 3-tier window**: *max comfort* (ceiling), *min
   comfort* (day-to-day floor, always enforced), and *min/away* (a deeper
   setback floor for extended absences).
-- **Minimises cost** by preferring to heat during cheap or negative-price
-  periods (e.g. Octopus Agile), using the thermal model to judge how much
-  slack there is before the comfort floor would be breached.
+- **Minimises cost** by computing a committed 24h heating plan once new
+  price data arrives (e.g. when Octopus Agile publishes tomorrow's rates),
+  choosing when to heat to stay within the comfort window at the lowest
+  cost - naturally preferring cheap and negative-price slots without any
+  special-casing.
 - **Reports** predicted vs. actual kWh, a model-vs-actual temperature graph,
-  and an estimate of cost saved, via ordinary Home Assistant sensors.
+  the plan itself (so you can see what it intends to do, and how that
+  lines up with price), and an estimate of cost saved, via ordinary Home
+  Assistant sensors.
 
 Spa Miser makes **no firmware changes** and doesn't talk MQTT directly - it
 drives the tub purely through the `climate` entity your gateway already
@@ -101,6 +105,7 @@ device page can.
 | `sensor.spa_miser_cost_saved_today` | Estimated saving vs. a naive always-on baseline |
 | `sensor.spa_miser_decision_reason` | Why the current recommendation was made |
 | `sensor.spa_miser_current_price` | Current price (p/kWh) from whichever price source is configured - populates immediately, doesn't need the model |
+| `sensor.spa_miser_daily_strategy` | The committed 24h plan: state is when it was last computed, `slots` attribute has the planned temperature/price/heat-on per slot (see [Example dashboard](#example-dashboard)) |
 
 **Diagnostic (collapsed by default on the device page):**
 
@@ -166,30 +171,132 @@ cards:
       - entity: sensor.spa_miser_cost_saved_today
 ```
 
-For nicer overlaid line charts, the HACS card
-[apexcharts-card](https://github.com/RomRider/apexcharts-card) works well with
-the same entities - not required, just a suggestion.
+### Plan vs. actual, with price overlaid (apexcharts-card)
+
+The cards above are all HA has built in, and can't render *future* data -
+`history-graph`/`statistics-graph` only show recorded history. To actually
+see the plan (not just today's numbers), install
+[apexcharts-card](https://github.com/RomRider/apexcharts-card) via HACS and
+use its `data_generator` option to plot `sensor.spa_miser_daily_strategy`'s
+`slots` attribute as a forecast series, alongside the real past data from
+`sensor.spa_miser_water_temperature` / `current_price` / `heating_state`.
+Temperature and price get their own y-axes; heating on/off (both planned and
+actual) is drawn as a low-opacity band on a third, hidden axis so it's
+visible without dominating the chart - this is what actually shows *when*
+the heater ran (or will run) against *when* electricity was cheap.
+
+```yaml
+type: custom:apexcharts-card
+header:
+  title: Spa heating plan vs. actual
+graph_span: 48h
+span:
+  start: day
+now:
+  show: true
+  label: Now
+yaxis:
+  - id: temp
+    decimals: 0
+    apex_config:
+      title:
+        text: "°C"
+  - id: price
+    opposite: true
+    decimals: 0
+    apex_config:
+      title:
+        text: "p/kWh"
+  - id: heat
+    show: false
+    min: 0
+    max: 4
+series:
+  - entity: sensor.spa_miser_water_temperature
+    name: Actual temperature
+    yaxis_id: temp
+    color: "#1f77b4"
+  - entity: sensor.spa_miser_daily_strategy
+    name: Planned temperature
+    yaxis_id: temp
+    color: "#1f77b4"
+    opacity: 0.5
+    curve: stepline
+    data_generator: |
+      return entity.attributes.slots.map((slot) => [
+        new Date(slot.start).getTime(), slot.planned_temp_c
+      ]);
+  - entity: sensor.spa_miser_current_price
+    name: Actual price
+    yaxis_id: price
+    color: "#ff7f0e"
+  - entity: sensor.spa_miser_daily_strategy
+    name: Planned price
+    yaxis_id: price
+    color: "#ff7f0e"
+    opacity: 0.5
+    curve: stepline
+    data_generator: |
+      return entity.attributes.slots.map((slot) => [
+        new Date(slot.start).getTime(), slot.price * 100
+      ]);
+  - entity: sensor.spa_miser_heating_state
+    name: Actual heating
+    yaxis_id: heat
+    type: area
+    color: "#2ca02c"
+    opacity: 0.3
+    transform: 'return (x === "Heating (active)" || x === "Heating (alternate stage)") ? 1 : 0;'
+  - entity: sensor.spa_miser_daily_strategy
+    name: Planned heating
+    yaxis_id: heat
+    type: area
+    color: "#2ca02c"
+    opacity: 0.15
+    curve: stepline
+    data_generator: |
+      return entity.attributes.slots.map((slot) => [
+        new Date(slot.start).getTime(), slot.heat_on ? 1 : 0
+      ]);
+```
 
 ## How it decides
 
-Each cycle, Spa Miser simulates a pure coast-down (heater off) from the
-current temperature to find when the comfort floor would be breached. If
-that's imminent, heating is forced on regardless of price - the comfort floor
-is a hard constraint. Otherwise, it looks at the price forecast between now
-and that breach point: negative prices always count as "cheap", and
-otherwise the cheapest ~30% of the visible window does. Heat is only
-recommended during a cheap slot, and only while there's room left below the
-ceiling.
+**Primary path - the daily strategy.** Once new price data arrives (Octopus
+Agile publishes tomorrow's rates ~4pm; the manual source just rolls over
+daily), Spa Miser refits the thermal model, then computes a plan covering
+the available forecast: a dynamic-programming search over discretized
+temperature that picks heat-on/off per slot to minimize total cost,
+constrained to never drop below the comfort floor and never exceed the
+ceiling (the spa's own thermostat wouldn't overshoot it anyway). Negative
+prices are naturally preferred - minimizing signed cost already rewards
+consuming during them, no special-casing needed. That plan is then held
+fixed and followed until the next price update or comfort-window change
+triggers a recompute (see `sensor.spa_miser_daily_strategy`).
 
-This is a deliberately simple greedy heuristic - not a full optimizer - which
-keeps it easy to reason about for a single on/off heating asset. A proper
-linear-program scheduler is a natural future enhancement.
+**Fallback path - a greedy heuristic**, used only when no plan is available
+yet (e.g. before the first successful model fit): simulate a pure coast-down
+from the current temperature to find when the floor would be breached, and
+heat only during the cheapest ~30% of the price window up to that point (or
+immediately, if the breach is imminent - the floor is a hard constraint
+either way).
+
+Both paths respect `switch.spa_miser_enabled` the same way - shadow mode
+(the switch off) computes and reports everything identically, it just never
+calls the climate services, so `sensor.spa_miser_daily_strategy` and the
+model-vs-actual graph work the same whether or not spa-miser is actually
+driving the tub.
 
 ## Not yet implemented (ideas, not commitments)
 
-- Anticipating planned usage ("warm by 6pm") rather than purely reactive
-  control.
+- Anticipating planned usage ("warm by 6pm") rather than the comfort window
+  alone.
 - Scheduled away periods (currently `away_mode` is a manual switch).
+- Deliberately drifting below the normal comfort floor during a defined
+  low-priority window, to defer energy use entirely to an exceptionally
+  cheap or negative slot (today the floor is always a hard constraint).
+- Continuous (rolling-horizon) strategy recomputation instead of once per
+  price update.
 - A local outdoor weather station as a live-current-conditions input
   alongside (not instead of) the forecast, which is what the decision engine
   actually needs.

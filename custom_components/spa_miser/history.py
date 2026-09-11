@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
+import numpy as np
 from homeassistant.components.recorder import get_instance
 from homeassistant.components.recorder.statistics import statistics_during_period
 from homeassistant.core import HomeAssistant
@@ -30,10 +31,14 @@ def _parse_stat_start(value) -> datetime | None:
     return None
 
 
-async def async_fetch_hourly_means(
-    hass: HomeAssistant, entity_id: str, start: datetime, end: datetime
+async def _async_fetch_hourly_stat(
+    hass: HomeAssistant,
+    entity_id: str,
+    start: datetime,
+    end: datetime,
+    stat_type: str,
 ) -> dict[datetime, float]:
-    """Return {hour_start_utc: mean_value} from one entity's long-term statistics."""
+    """Return {hour_start_utc: value} from one entity's long-term statistics."""
     instance = get_instance(hass)
     stats = await instance.async_add_executor_job(
         statistics_during_period,
@@ -43,16 +48,52 @@ async def async_fetch_hourly_means(
         {entity_id},
         "hour",
         None,
-        {"mean"},
+        {stat_type},
     )
     result: dict[datetime, float] = {}
     for row in stats.get(entity_id, []):
-        mean = row.get("mean")
+        value = row.get(stat_type)
         hour = _parse_stat_start(row.get("start"))
-        if mean is None or hour is None:
+        if value is None or hour is None:
             continue
-        result[hour] = float(mean)
+        result[hour] = float(value)
     return result
+
+
+async def async_fetch_hourly_means(
+    hass: HomeAssistant, entity_id: str, start: datetime, end: datetime
+) -> dict[datetime, float]:
+    """Return {hour_start_utc: mean_value} from one entity's long-term statistics."""
+    return await _async_fetch_hourly_stat(hass, entity_id, start, end, "mean")
+
+
+DEFAULT_HEATER_POWER_KW = 3.0
+# Enum sensors (like heating_state) don't get numeric long-term statistics,
+# so "which hours was the heater active" isn't directly queryable that way.
+# Instead: take a high percentile of hourly *max* power readings - most
+# hours the heater isn't firing at all (low max, near-standby draw), while
+# the hours it did fire show a distinctly higher max, so a high percentile
+# picks those out without needing to correlate against heating_state at all.
+HEATER_POWER_PERCENTILE = 90
+MIN_HOURS_FOR_POWER_ESTIMATE = 24
+
+
+async def async_estimate_heater_power_kw(
+    hass: HomeAssistant, *, power_entity: str, start: datetime, end: datetime
+) -> float:
+    """Estimate the heater's real power draw when actively heating, in kW.
+
+    Falls back to DEFAULT_HEATER_POWER_KW when there's not yet enough
+    history to estimate confidently.
+    """
+    hourly_max_w = await _async_fetch_hourly_stat(hass, power_entity, start, end, "max")
+    if len(hourly_max_w) < MIN_HOURS_FOR_POWER_ESTIMATE:
+        return DEFAULT_HEATER_POWER_KW
+
+    percentile_w = float(np.percentile(list(hourly_max_w.values()), HEATER_POWER_PERCENTILE))
+    if percentile_w <= 0:
+        return DEFAULT_HEATER_POWER_KW
+    return percentile_w / WATTS_PER_KW
 
 
 async def async_build_hourly_samples(

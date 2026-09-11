@@ -200,7 +200,7 @@ async def async_setup_entry(
     coordinator: SpaMiserCoordinator = hass.data[DOMAIN][entry.entry_id]
     async_add_entities(
         [SpaMiserSensor(coordinator, description) for description in SENSOR_DESCRIPTIONS]
-        + [ConfiguredSourcesSensor(coordinator)]
+        + [ConfiguredSourcesSensor(coordinator), DailyStrategySensor(coordinator)]
     )
 
 
@@ -241,4 +241,44 @@ class ConfiguredSourcesSensor(SpaMiserEntity, SensorEntity):
         return {
             label: self.coordinator.entry.data.get(conf_key) or "Not configured"
             for label, conf_key, _ in SOURCE_ENTITY_FIELDS
+        }
+
+
+class DailyStrategySensor(SpaMiserEntity, SensorEntity):
+    """The committed 24h heating plan: state is when it was computed, the
+    full plan (planned temperature + heat on/off + price per slot) is in
+    attributes for a chart (e.g. apexcharts-card) to plot as a future
+    series - HA's built-in history/statistics-graph cards only render
+    recorded history, not a forecast, so this is the only way to expose it.
+    """
+
+    _attr_translation_key = "daily_strategy"
+    _attr_icon = "mdi:calendar-clock-outline"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: SpaMiserCoordinator) -> None:
+        super().__init__(coordinator, "daily_strategy")
+
+    @property
+    def native_value(self):
+        strategy = self.coordinator.strategy
+        return strategy.computed_at if strategy else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, object]:
+        strategy = self.coordinator.strategy
+        if strategy is None:
+            return {"slots": []}
+        return {
+            "slots": [
+                {
+                    "start": slot.start.isoformat(),
+                    "end": slot.end.isoformat(),
+                    "price": slot.price,
+                    "planned_temp_c": slot.planned_temp_c,
+                    "heat_on": slot.heat_on,
+                }
+                for slot in strategy.slots
+            ]
         }
