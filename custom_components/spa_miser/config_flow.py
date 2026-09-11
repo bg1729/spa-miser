@@ -48,16 +48,17 @@ from .const import (
 
 
 def _entity_selector(domain: str, device_class: str | None = None) -> selector.EntitySelector:
-    # domain/device_class must be passed as lists: the picker's frontend
-    # filtering treats a bare string as an iterable of characters rather than
-    # a single value, which silently matches nothing ("No items available")
-    # even when qualifying entities exist.
-    return selector.EntitySelector(
-        selector.EntitySelectorConfig(
-            domain=[domain],
-            device_class=[device_class] if device_class else None,
-        )
-    )
+    # The real bug (verified against HA's own selector source): EntitySelector
+    # runs its config through voluptuous immediately on construction, which
+    # calls cv.ensure_list() on device_class - and cv.ensure_list(None) is
+    # [], not "no filter". An explicit device_class=None therefore becomes
+    # "device_class must be in []", matching nothing, for every field that
+    # doesn't filter by device_class. Fix: omit the key entirely instead of
+    # passing None.
+    config: dict[str, Any] = {"domain": [domain]}
+    if device_class:
+        config["device_class"] = [device_class]
+    return selector.EntitySelector(selector.EntitySelectorConfig(**config))
 
 
 def _temp_selector() -> selector.NumberSelector:
