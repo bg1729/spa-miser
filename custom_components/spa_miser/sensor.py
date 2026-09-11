@@ -116,78 +116,21 @@ SENSOR_DESCRIPTIONS: tuple[SpaMiserSensorDescription, ...] = (
 )
 
 
-@dataclass(frozen=True, kw_only=True)
-class SourceSensorDescription(SensorEntityDescription):
-    """Describes a diagnostic sensor that just reports a configured entity_id.
-
-    Not driven by the coordinator - these reflect the config entry's own
-    data (set once at setup), so they exist purely so the device page shows,
-    at a glance, exactly which entity each field is reading from. That's
-    otherwise invisible: the source entities belong to other integrations'
-    devices, so HA has no built-in way to surface "what this integration
-    depends on" without something like this.
-    """
-
-    conf_key: str = ""
-
-
-SOURCE_SENSOR_DESCRIPTIONS: tuple[SourceSensorDescription, ...] = (
-    SourceSensorDescription(
-        key="source_climate_entity",
-        translation_key="source_climate_entity",
-        icon="mdi:link-variant",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        conf_key=CONF_CLIMATE_ENTITY,
-    ),
-    SourceSensorDescription(
-        key="source_water_temp_sensor",
-        translation_key="source_water_temp_sensor",
-        icon="mdi:link-variant",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        conf_key=CONF_WATER_TEMP_SENSOR,
-    ),
-    SourceSensorDescription(
-        key="source_heating_state_entity",
-        translation_key="source_heating_state_entity",
-        icon="mdi:link-variant",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        conf_key=CONF_HEATING_STATE_ENTITY,
-    ),
-    SourceSensorDescription(
-        key="source_weather_entity",
-        translation_key="source_weather_entity",
-        icon="mdi:link-variant",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        conf_key=CONF_WEATHER_ENTITY,
-    ),
-    SourceSensorDescription(
-        key="source_power_entity",
-        translation_key="source_power_entity",
-        icon="mdi:link-variant",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        conf_key=CONF_POWER_ENTITY,
-    ),
-    SourceSensorDescription(
-        key="source_energy_entity",
-        translation_key="source_energy_entity",
-        icon="mdi:link-variant",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        conf_key=CONF_ENERGY_ENTITY,
-    ),
-    SourceSensorDescription(
-        key="source_outdoor_temp_sensor",
-        translation_key="source_outdoor_temp_sensor",
-        icon="mdi:link-variant",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        conf_key=CONF_OUTDOOR_TEMP_SENSOR,
-    ),
-    SourceSensorDescription(
-        key="source_wind_speed_sensor",
-        translation_key="source_wind_speed_sensor",
-        icon="mdi:link-variant",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        conf_key=CONF_WIND_SPEED_SENSOR,
-    ),
+# (role label, config key, required) - drives the single configured-sources
+# sensor below. A plain diagnostic sensor's *state* renders in a compact
+# list on the device page; a long entity_id string as that state collided
+# with the row's label there. Attributes render fine in the more-info
+# dialog instead, so the full mapping lives there on one sensor rather than
+# as eight separate hard-to-read rows.
+SOURCE_ENTITY_FIELDS: tuple[tuple[str, str, bool], ...] = (
+    ("climate_entity", CONF_CLIMATE_ENTITY, True),
+    ("water_temp_sensor", CONF_WATER_TEMP_SENSOR, True),
+    ("heating_state_entity", CONF_HEATING_STATE_ENTITY, True),
+    ("weather_entity", CONF_WEATHER_ENTITY, True),
+    ("power_entity", CONF_POWER_ENTITY, True),
+    ("energy_entity", CONF_ENERGY_ENTITY, True),
+    ("outdoor_temp_sensor", CONF_OUTDOOR_TEMP_SENSOR, False),
+    ("wind_speed_sensor", CONF_WIND_SPEED_SENSOR, False),
 )
 
 
@@ -197,10 +140,7 @@ async def async_setup_entry(
     coordinator: SpaMiserCoordinator = hass.data[DOMAIN][entry.entry_id]
     async_add_entities(
         [SpaMiserSensor(coordinator, description) for description in SENSOR_DESCRIPTIONS]
-        + [
-            ConfiguredSourceSensor(coordinator, description)
-            for description in SOURCE_SENSOR_DESCRIPTIONS
-        ]
+        + [ConfiguredSourcesSensor(coordinator)]
     )
 
 
@@ -218,16 +158,27 @@ class SpaMiserSensor(SpaMiserEntity, SensorEntity):
         return self.entity_description.value_fn(self.coordinator.data)
 
 
-class ConfiguredSourceSensor(SpaMiserEntity, SensorEntity):
-    entity_description: SourceSensorDescription
+class ConfiguredSourcesSensor(SpaMiserEntity, SensorEntity):
+    """One compact sensor: state is a count, full mapping is in attributes."""
 
-    def __init__(
-        self, coordinator: SpaMiserCoordinator, description: SourceSensorDescription
-    ) -> None:
-        super().__init__(coordinator, description.key)
-        self.entity_description = description
+    _attr_translation_key = "configured_sources"
+    _attr_icon = "mdi:link-variant"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: SpaMiserCoordinator) -> None:
+        super().__init__(coordinator, "configured_sources")
 
     @property
-    def native_value(self) -> str:
-        value = self.coordinator.entry.data.get(self.entity_description.conf_key)
-        return value or "Not configured"
+    def native_value(self) -> int:
+        return sum(
+            1
+            for _, conf_key, _ in SOURCE_ENTITY_FIELDS
+            if self.coordinator.entry.data.get(conf_key)
+        )
+
+    @property
+    def extra_state_attributes(self) -> dict[str, str]:
+        return {
+            label: self.coordinator.entry.data.get(conf_key) or "Not configured"
+            for label, conf_key, _ in SOURCE_ENTITY_FIELDS
+        }
