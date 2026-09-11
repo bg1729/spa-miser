@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 
 import numpy as np
 from homeassistant.components.recorder import get_instance
+from homeassistant.components.recorder.history import state_changes_during_period
 from homeassistant.components.recorder.statistics import statistics_during_period
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
@@ -46,7 +47,16 @@ async def _async_fetch_hourly_stat(
     end: datetime,
     stat_type: str,
 ) -> dict[datetime, float]:
-    """Return {hour_start_utc: value} from one entity's long-term statistics."""
+    """Return {hour_start_utc: value} from one entity's long-term statistics.
+
+    Falls back to aggregating raw recorder history ourselves if the entity
+    has none at all - discovered live against a real gateway whose water-
+    temperature sensor never declares a state_class in its own MQTT
+    discovery config, which silently means HA generates no long-term
+    statistics for it, however long you wait. Raw history is only kept
+    ~10 days by default, but that's still comfortably more than
+    MIN_SAMPLES_FOR_FIT needs.
+    """
     instance = get_instance(hass)
     stats = await instance.async_add_executor_job(
         statistics_during_period,
@@ -65,7 +75,36 @@ async def _async_fetch_hourly_stat(
         if value is None or hour is None:
             continue
         result[hour] = float(value)
-    return result
+
+    if result:
+        return result
+    return await _async_fetch_hourly_from_raw_history(hass, entity_id, start, end, stat_type)
+
+
+async def _async_fetch_hourly_from_raw_history(
+    hass: HomeAssistant,
+    entity_id: str,
+    start: datetime,
+    end: datetime,
+    stat_type: str,
+) -> dict[datetime, float]:
+    instance = get_instance(hass)
+    changes = await instance.async_add_executor_job(
+        state_changes_during_period, hass, start, end, entity_id
+    )
+    buckets: dict[datetime, list[float]] = {}
+    for state in changes.get(entity_id, []):
+        try:
+            value = float(state.state)
+        except (TypeError, ValueError):
+            continue
+        hour = dt_util.as_utc(state.last_updated).replace(
+            minute=0, second=0, microsecond=0
+        )
+        buckets.setdefault(hour, []).append(value)
+
+    aggregate = max if stat_type == "max" else (lambda values: sum(values) / len(values))
+    return {hour: aggregate(values) for hour, values in buckets.items()}
 
 
 async def async_fetch_hourly_means(

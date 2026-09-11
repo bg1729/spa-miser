@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import pytest
+from homeassistant.core import State
 
 from custom_components.spa_miser import history
 
@@ -128,6 +129,55 @@ async def test_build_hourly_samples_skips_hours_missing_power_data(hass):
     assert len(samples) == 1
     assert samples[0].water_temp_c == 38.0
     assert samples[0].heater_power_kw == 3.0
+
+
+async def test_falls_back_to_raw_history_when_entity_has_no_statistics(hass):
+    # sensor.water is intentionally absent from the statistics fixture, so
+    # statistics_during_period returns [] for it - matching a real gateway
+    # sensor observed live to never declare a state_class in its own MQTT
+    # discovery config, which silently means HA never generates long-term
+    # statistics for it, however long you wait.
+    ambient = {0: 5.0, 1: 5.0}
+    power_w = {0: 3000.0, 1: 0.0}
+    raw_water_states = {
+        "sensor.water": [
+            State("sensor.water", "38.0", last_updated=_hour(0) + timedelta(minutes=10)),
+            State("sensor.water", "38.2", last_updated=_hour(0) + timedelta(minutes=40)),
+            State("sensor.water", "37.8", last_updated=_hour(1) + timedelta(minutes=15)),
+        ]
+    }
+
+    with (
+        patch.object(history, "get_instance", return_value=_FakeRecorderInstance()),
+        patch.object(
+            history,
+            "statistics_during_period",
+            side_effect=_stats_for({"sensor.outdoor": ambient, "sensor.power": power_w}),
+        ),
+        patch.object(
+            history,
+            "state_changes_during_period",
+            side_effect=lambda hass, start, end, entity_id: {
+                entity_id: raw_water_states.get(entity_id, [])
+            },
+        ),
+    ):
+        samples = await history.async_build_hourly_samples(
+            hass,
+            water_temp_entity="sensor.water",
+            outdoor_temp_entity="sensor.outdoor",
+            wind_speed_entity=None,
+            power_entity="sensor.power",
+            start=START,
+            end=END,
+        )
+
+    assert len(samples) == 1
+    # Hour 0's raw readings (38.0, 38.2) average to 38.1; hour 1 (37.8) is
+    # only usable as the delta target here, since there's no hour-2 water
+    # reading to compute hour 1's own delta against.
+    assert samples[0].water_temp_c == pytest.approx(38.1)
+    assert samples[0].delta_temp_c == pytest.approx(37.8 - 38.1)
 
 
 async def test_build_hourly_samples_backfills_ambient_gaps_when_allowed(hass):
