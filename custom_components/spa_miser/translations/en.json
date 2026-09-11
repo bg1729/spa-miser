@@ -1,0 +1,72 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Spa Miser",
+        "description": "Pick the entities your spa gateway and Home Assistant already provide, set your comfort window, and choose a price source.",
+        "data": {
+          "climate_entity": "Spa climate entity (control)",
+          "water_temp_sensor": "Water temperature sensor",
+          "heating_state_entity": "Heater active-state sensor",
+          "weather_entity": "Weather entity (for forecasts)",
+          "power_entity": "Heater circuit power sensor",
+          "energy_entity": "Heater circuit energy (kWh) sensor",
+          "outdoor_temp_sensor": "Outdoor temperature sensor (recommended, for model fitting)",
+          "wind_speed_sensor": "Outdoor wind speed sensor (optional)",
+          "max_comfort_temp": "Max comfort temperature",
+          "min_comfort_temp": "Min comfort temperature",
+          "min_away_temp": "Min (away) temperature",
+          "manual_override_minutes": "Pause after a manual change (minutes)",
+          "price_source": "Price source"
+        }
+      },
+      "octopus": {
+        "title": "Octopus Agile rates",
+        "data": {
+          "octopus_current_day_rates_entity": "\"Current day rates\" event entity"
+        }
+      },
+      "manual_price": {
+        "title": "Manual cheap-hours schedule",
+        "data": {
+          "manual_cheap_hours": "Cheap hours of day",
+          "manual_cheap_rate": "Cheap rate (currency/kWh)",
+          "manual_standard_rate": "Standard rate (currency/kWh)"
+        }
+      }
+    }
+  },
+  "selector": {
+    "price_source": {
+      "options": {
+        "octopus_agile": "Octopus Agile",
+        "manual": "Manual cheap-hours schedule"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "model_temperature": { "name": "Model temperature" },
+      "predicted_kwh_today": { "name": "Predicted kWh today" },
+      "actual_kwh_today": { "name": "Actual kWh today" },
+      "cost_saved_today": { "name": "Estimated cost saved today" },
+      "decision_reason": { "name": "Decision reason" },
+      "loss_coefficient": { "name": "Fitted loss coefficient" },
+      "wind_coefficient": { "name": "Fitted wind coefficient" },
+      "thermal_mass": { "name": "Estimated thermal mass" },
+      "model_fit_quality": { "name": "Model fit quality (R²)" }
+    },
+    "binary_sensor": {
+      "heating_recommended": { "name": "Heating recommended" }
+    },
+    "switch": {
+      "enabled": { "name": "Automatic control enabled" },
+      "away_mode": { "name": "Away mode" }
+    },
+    "number": {
+      "max_comfort_temp": { "name": "Max comfort temperature" },
+      "min_comfort_temp": { "name": "Min comfort temperature" },
+      "min_away_temp": { "name": "Min (away) temperature" }
+    }
+  }
+}
