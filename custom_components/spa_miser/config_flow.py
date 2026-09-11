@@ -1,16 +1,19 @@
 """Config flow for spa-miser.
 
-One-time setup: pick the entities to read from/control, and choose a price
-source. Day-to-day tuning (enabled/away mode/comfort temperatures) happens
-live via the switch/number entities this integration creates, not here -
-changing those doesn't require reconfiguring the integration.
+Sets up which entities to read from/control and which price source to use.
+Day-to-day tuning (enabled/away mode/comfort temperatures) happens live via
+the switch/number entities this integration creates, not here. Everything
+else - including switching price source - goes through "Reconfigure" on the
+entry (async_step_reconfigure below), which walks the same steps pre-filled
+with current values and updates the entry in place rather than requiring
+removal and re-adding.
 """
 from __future__ import annotations
 
 from typing import Any
 
 import voluptuous as vol
-from homeassistant.config_entries import ConfigFlow
+from homeassistant.config_entries import ConfigEntry, ConfigFlow
 from homeassistant.helpers import selector
 
 from .const import (
@@ -152,12 +155,30 @@ STEP_MANUAL_SCHEMA = vol.Schema(
 
 
 class SpaMiserConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for spa-miser."""
+    """Handle a config flow for spa-miser, including reconfigure."""
 
     VERSION = 1
 
     def __init__(self) -> None:
         self._user_data: dict[str, Any] = {}
+        self._reconfigure_entry: ConfigEntry | None = None
+
+    def _current_data(self) -> dict[str, Any]:
+        """Values to pre-fill a step's form with.
+
+        Reconfiguring an existing entry, this is its current data (so fields
+        that aren't changing don't need re-entering); fresh setup, it's
+        whatever earlier steps in this same flow already collected.
+        """
+        if self._reconfigure_entry is not None:
+            return {**self._reconfigure_entry.data, **self._user_data}
+        return self._user_data
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> Any:
+        self._reconfigure_entry = self._get_reconfigure_entry()
+        return await self.async_step_user(user_input)
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -171,25 +192,30 @@ class SpaMiserConfigFlow(ConfigFlow, domain=DOMAIN):
                 return await self.async_step_octopus_public()
             return await self.async_step_manual_price()
 
-        return self.async_show_form(step_id="user", data_schema=STEP_USER_SCHEMA)
+        schema = self.add_suggested_values_to_schema(STEP_USER_SCHEMA, self._current_data())
+        return self.async_show_form(step_id="user", data_schema=schema)
 
     async def async_step_octopus(
         self, user_input: dict[str, Any] | None = None
     ) -> Any:
         if user_input is not None:
             data = {**self._user_data, **user_input}
-            return self._async_create(data)
-        return self.async_show_form(step_id="octopus", data_schema=STEP_OCTOPUS_SCHEMA)
+            return self._async_finish(data)
+        schema = self.add_suggested_values_to_schema(
+            STEP_OCTOPUS_SCHEMA, self._current_data()
+        )
+        return self.async_show_form(step_id="octopus", data_schema=schema)
 
     async def async_step_octopus_public(
         self, user_input: dict[str, Any] | None = None
     ) -> Any:
         if user_input is not None:
             data = {**self._user_data, **user_input}
-            return self._async_create(data)
-        return self.async_show_form(
-            step_id="octopus_public", data_schema=STEP_OCTOPUS_PUBLIC_SCHEMA
+            return self._async_finish(data)
+        schema = self.add_suggested_values_to_schema(
+            STEP_OCTOPUS_PUBLIC_SCHEMA, self._current_data()
         )
+        return self.async_show_form(step_id="octopus_public", data_schema=schema)
 
     async def async_step_manual_price(
         self, user_input: dict[str, Any] | None = None
@@ -197,8 +223,13 @@ class SpaMiserConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             manual_hours = [int(h) for h in user_input[CONF_MANUAL_CHEAP_HOURS]]
             data = {**self._user_data, **user_input, CONF_MANUAL_CHEAP_HOURS: manual_hours}
-            return self._async_create(data)
-        return self.async_show_form(step_id="manual_price", data_schema=STEP_MANUAL_SCHEMA)
+            return self._async_finish(data)
+        schema = self.add_suggested_values_to_schema(
+            STEP_MANUAL_SCHEMA, self._current_data()
+        )
+        return self.async_show_form(step_id="manual_price", data_schema=schema)
 
-    def _async_create(self, data: dict[str, Any]):
+    def _async_finish(self, data: dict[str, Any]):
+        if self._reconfigure_entry is not None:
+            return self.async_update_reload_and_abort(self._reconfigure_entry, data=data)
         return self.async_create_entry(title="Spa Miser", data=data)
