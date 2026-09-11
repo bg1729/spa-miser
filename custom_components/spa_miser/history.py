@@ -16,11 +16,19 @@ from homeassistant.components.recorder.statistics import statistics_during_perio
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
+from . import open_meteo
 from .thermal_model import HourlySample
 
 # Power sensors are assumed to report Watts (the HA `power` device_class
 # convention); statistics are converted to kW for the model.
 WATTS_PER_KW = 1000.0
+
+# Once the real outdoor sensor has at least this many hours of its own
+# history, stop bothering to call Open-Meteo at all - the whole point is
+# bridging the gap right after that sensor is first enabled (HA records no
+# history for a disabled entity), not an ongoing dependency once real data
+# is plentiful.
+BACKFILL_TRIGGER_MAX_REAL_HOURS = 24 * 7
 
 
 def _parse_stat_start(value) -> datetime | None:
@@ -105,12 +113,19 @@ async def async_build_hourly_samples(
     power_entity: str,
     start: datetime,
     end: datetime,
+    allow_weather_backfill: bool = False,
 ) -> list[HourlySample]:
     """Build hourly (water_temp, delta, ambient, wind, power) samples for fitting.
 
     Requires a real outdoor temperature sensor's history: without it there is
     no signal to separate heat loss from heat input, and any "fit" would be
     meaningless rather than merely less accurate. Returns [] in that case.
+
+    allow_weather_backfill (opt-in - see button.spa_miser_estimate_initial_model)
+    fills GAPS in that real history from Open-Meteo's public historical
+    archive, so a fit can succeed well before the real sensor has
+    accumulated enough history on its own. Real data always wins where it
+    exists; this only ever fills hours the real sensor has no reading for.
     """
     if outdoor_temp_entity is None:
         return []
@@ -123,6 +138,12 @@ async def async_build_hourly_samples(
         if wind_speed_entity
         else {}
     )
+
+    if allow_weather_backfill and len(ambient) < BACKFILL_TRIGGER_MAX_REAL_HOURS:
+        backfill = await open_meteo.async_fetch_historical_ambient(hass, start, end)
+        for hour, (temp_c, wind_ms) in backfill.items():
+            ambient.setdefault(hour, temp_c)
+            wind.setdefault(hour, wind_ms)
 
     samples: list[HourlySample] = []
     for hour in sorted(water):

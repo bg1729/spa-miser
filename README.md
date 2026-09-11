@@ -71,7 +71,12 @@ hand.
    (disabled by default; enable it in the entity list) shows the fit's R².
    `sensor.spa_miser_current_price` populates immediately regardless (it
    doesn't depend on the model), so it's the fastest way to confirm a price
-   source is actually wired up correctly.
+   source is actually wired up correctly. If your outdoor temperature sensor
+   was only just enabled, the model has nothing to fit against yet either -
+   press **`button.spa_miser_estimate_initial_model`** to bootstrap a first
+   fit immediately instead of waiting ~24h for real history to build up (see
+   [Bootstrapping the model](#bootstrapping-the-model) below for what that
+   button actually does).
 5. To change entities or price source later - including switching between
    the three price sources - use **Reconfigure** on the integration (⋮ menu
    on its card in Settings → Devices & Services), not remove-and-re-add.
@@ -93,6 +98,7 @@ device page can.
 | `switch.spa_miser_enabled` | Master on/off for automatic control (shadow mode when off) |
 | `switch.spa_miser_away_mode` | Deep setback to the min/away floor |
 | `number.spa_miser_max_comfort_temp` / `min_comfort_temp` / `min_away_temp` | Live-adjustable comfort window |
+| `button.spa_miser_estimate_initial_model` | Bootstraps a first model fit now instead of waiting ~24h - see [Bootstrapping the model](#bootstrapping-the-model) |
 
 **Model state & outputs:**
 
@@ -286,6 +292,35 @@ Both paths respect `switch.spa_miser_enabled` the same way - shadow mode
 calls the climate services, so `sensor.spa_miser_daily_strategy` and the
 model-vs-actual graph work the same whether or not spa-miser is actually
 driving the tub.
+
+## Bootstrapping the model
+
+The thermal model needs real hourly history for your water temperature,
+outdoor temperature, and heater power to fit against. If your outdoor
+temperature sensor was only just enabled, HA has no history for it yet
+(disabled entities record nothing) - normally that just means waiting
+~24h for enough hours to accumulate.
+
+`button.spa_miser_estimate_initial_model` skips that wait. Pressing it:
+
+1. Fetches real historical outdoor temperature/wind for your area from
+   [Open-Meteo](https://open-meteo.com/en/docs/historical-weather-api)'s
+   free, public historical weather archive - no account or API key, just
+   your HA instance's own configured latitude/longitude (Settings → System
+   → General). That's the only thing this sends anywhere; nothing else
+   leaves your instance.
+2. Uses that estimate to fill in **only the hours your real outdoor sensor
+   has no reading for** - real sensor data always wins where both exist -
+   then immediately attempts a fit.
+3. Stays enabled going forward, so future automatic refits (daily, or on
+   every cycle until the first fit succeeds) also get to use it, not just
+   this one press - until your real sensor has built up about a week of its
+   own history, at which point spa-miser stops calling Open-Meteo at all
+   since it's no longer needed.
+
+This is entirely optional - if you'd rather just wait for real history to
+accumulate on its own, don't press the button and nothing external is ever
+contacted.
 
 ## Not yet implemented (ideas, not commitments)
 

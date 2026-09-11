@@ -130,6 +130,84 @@ async def test_build_hourly_samples_skips_hours_missing_power_data(hass):
     assert samples[0].heater_power_kw == 3.0
 
 
+async def test_build_hourly_samples_backfills_ambient_gaps_when_allowed(hass):
+    # Real outdoor sensor only has hour 0 (e.g. just enabled); hours 1 and 2
+    # would otherwise be skipped entirely for lack of an ambient reading.
+    water = {0: 38.0, 1: 37.8, 2: 37.6, 3: 37.4}
+    ambient = {0: 5.0}
+    power_w = {0: 3000.0, 1: 0.0, 2: 0.0}
+    backfill = {
+        _hour(1): (4.5, 2.0),
+        _hour(2): (4.0, 2.5),
+    }
+
+    with (
+        patch.object(history, "get_instance", return_value=_FakeRecorderInstance()),
+        patch.object(
+            history,
+            "statistics_during_period",
+            side_effect=_stats_for(
+                {"sensor.water": water, "sensor.outdoor": ambient, "sensor.power": power_w}
+            ),
+        ),
+        patch.object(
+            history.open_meteo,
+            "async_fetch_historical_ambient",
+            return_value=backfill,
+        ),
+    ):
+        samples = await history.async_build_hourly_samples(
+            hass,
+            water_temp_entity="sensor.water",
+            outdoor_temp_entity="sensor.outdoor",
+            wind_speed_entity=None,
+            power_entity="sensor.power",
+            start=START,
+            end=END,
+            allow_weather_backfill=True,
+        )
+
+    # All three hours now have everything needed: hour 0 from real data,
+    # hours 1 and 2 only because the ambient gap got backfilled.
+    assert len(samples) == 3
+    assert samples[0].ambient_temp_c == 5.0  # real data wins over backfill
+    assert samples[1].ambient_temp_c == 4.5  # backfilled
+    assert samples[1].wind_speed_ms == 2.0
+    assert samples[2].ambient_temp_c == 4.0  # backfilled
+
+
+async def test_build_hourly_samples_skips_backfill_once_real_history_is_plentiful(hass):
+    plentiful = {i: 5.0 for i in range(history.BACKFILL_TRIGGER_MAX_REAL_HOURS)}
+    water = {i: 38.0 for i in range(history.BACKFILL_TRIGGER_MAX_REAL_HOURS + 1)}
+    power_w = {i: 0.0 for i in range(history.BACKFILL_TRIGGER_MAX_REAL_HOURS)}
+
+    with (
+        patch.object(history, "get_instance", return_value=_FakeRecorderInstance()),
+        patch.object(
+            history,
+            "statistics_during_period",
+            side_effect=_stats_for(
+                {"sensor.water": water, "sensor.outdoor": plentiful, "sensor.power": power_w}
+            ),
+        ),
+        patch.object(
+            history.open_meteo, "async_fetch_historical_ambient"
+        ) as mock_backfill,
+    ):
+        await history.async_build_hourly_samples(
+            hass,
+            water_temp_entity="sensor.water",
+            outdoor_temp_entity="sensor.outdoor",
+            wind_speed_entity=None,
+            power_entity="sensor.power",
+            start=START,
+            end=END,
+            allow_weather_backfill=True,
+        )
+
+    mock_backfill.assert_not_called()
+
+
 async def test_estimate_heater_power_kw_uses_high_percentile_of_hourly_max(hass):
     # Mostly-idle standby draw (~50W), with a clear minority of hours (20%)
     # the heater actually fired (3000W) - comfortably past the 90th

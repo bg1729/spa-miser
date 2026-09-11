@@ -30,12 +30,14 @@ from .const import (
     CONF_POWER_ENTITY,
     CONF_PRICE_SOURCE,
     CONF_WATER_TEMP_SENSOR,
+    CONF_WEATHER_BACKFILL_ENABLED,
     CONF_WEATHER_ENTITY,
     CONF_WIND_SPEED_SENSOR,
     COORDINATOR_UPDATE_INTERVAL_MINUTES,
     DECISION_LOOKAHEAD_HOURS,
     DEFAULT_AWAY_MODE,
     DEFAULT_ENABLED,
+    DEFAULT_WEATHER_BACKFILL_ENABLED,
     DEFAULT_MANUAL_CHEAP_HOURS,
     DEFAULT_MANUAL_CHEAP_RATE,
     DEFAULT_MANUAL_OVERRIDE_MINUTES,
@@ -125,6 +127,9 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
 
         self._enabled: bool = entry.options.get(CONF_ENABLED, DEFAULT_ENABLED)
         self._away_mode: bool = entry.options.get(CONF_AWAY_MODE, DEFAULT_AWAY_MODE)
+        self._weather_backfill_enabled: bool = entry.options.get(
+            CONF_WEATHER_BACKFILL_ENABLED, DEFAULT_WEATHER_BACKFILL_ENABLED
+        )
         # Comfort temps are set once in entry.data by the config flow, then
         # potentially overridden live via the number entities into
         # entry.options (see _persist_option). Options - the more recent of
@@ -208,6 +213,19 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
     async def async_set_min_away_c(self, value: float) -> None:
         self._min_away_c = value
         self._persist_option(CONF_MIN_AWAY_TEMP, value)
+        await self.async_request_refresh()
+
+    async def async_trigger_initial_estimate(self) -> None:
+        """Bootstrap a first model fit right now using Open-Meteo backfill.
+
+        Called from button.spa_miser_estimate_initial_model. Enables
+        weather backfill (persisted - future automatic refits get to use it
+        too, not just this one call) and immediately refits, rather than
+        waiting for the normal refit cadence to happen to pick it up.
+        """
+        self._weather_backfill_enabled = True
+        self._persist_option(CONF_WEATHER_BACKFILL_ENABLED, True)
+        await self._async_refit_model()
         await self.async_request_refresh()
 
     def _persist_option(self, key: str, value) -> None:
@@ -428,6 +446,7 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
             power_entity=self.entry.data[CONF_POWER_ENTITY],
             start=start,
             end=end,
+            allow_weather_backfill=self._weather_backfill_enabled,
         )
         fitted = fit_model(samples)
         if fitted is None:

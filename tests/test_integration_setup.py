@@ -70,6 +70,9 @@ async def test_setup_entry_creates_platform_entities(hass, enable_custom_integra
         "binary_sensor.spa_miser_heating_recommended",
         "sensor.spa_miser_predicted_kwh_today",
         "sensor.spa_miser_actual_kwh_today",
+        # Deliberately verbose display name (the privacy disclosure), but
+        # suggested_object_id keeps this short and stable regardless.
+        "button.spa_miser_estimate_initial_model",
     ]
     for entity_id in expected_entities:
         state = hass.states.get(entity_id)

@@ -82,6 +82,11 @@
       "max_comfort_temp": { "name": "Max comfort temperature" },
       "min_comfort_temp": { "name": "Min comfort temperature" },
       "min_away_temp": { "name": "Min (away) temperature" }
+    },
+    "button": {
+      "estimate_initial_model": {
+        "name": "Estimate initial model (sends your location to Open-Meteo)"
+      }
     }
   }
 }

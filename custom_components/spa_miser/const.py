@@ -3,7 +3,7 @@ from __future__ import annotations
 
 DOMAIN = "spa_miser"
 
-PLATFORMS = ["sensor", "binary_sensor", "switch", "number"]
+PLATFORMS = ["sensor", "binary_sensor", "switch", "number", "button"]
 
 # --- Config entry keys (set once, via config flow) ---
 CONF_CLIMATE_ENTITY = "climate_entity"
@@ -77,6 +77,11 @@ CONF_ENABLED = "enabled"
 CONF_AWAY_MODE = "away_mode"
 DEFAULT_ENABLED = False
 DEFAULT_AWAY_MODE = False
+# Opt-in only, via button.spa_miser_estimate_initial_model - see open_meteo.py.
+# Off by default so nothing external is contacted without the user
+# explicitly choosing to (the button's name/description is the "prompt").
+CONF_WEATHER_BACKFILL_ENABLED = "weather_backfill_enabled"
+DEFAULT_WEATHER_BACKFILL_ENABLED = False
 
 DEFAULT_MAX_COMFORT_TEMP = 40.0
 DEFAULT_MIN_COMFORT_TEMP = 36.0
