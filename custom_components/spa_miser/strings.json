@@ -58,6 +58,8 @@
       "predicted_kwh_today": { "name": "Predicted kWh today" },
       "actual_kwh_today": { "name": "Actual kWh today" },
       "cost_saved_today": { "name": "Estimated cost saved today" },
+      "current_price": { "name": "Current price" },
+      "price_slots_available": { "name": "Price slots available" },
       "decision_reason": { "name": "Decision reason" },
       "loss_coefficient": { "name": "Fitted loss coefficient" },
       "wind_coefficient": { "name": "Fitted wind coefficient" },

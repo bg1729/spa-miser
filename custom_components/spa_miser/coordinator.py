@@ -77,6 +77,11 @@ class SpaMiserData:
     max_comfort_c: float = DEFAULT_MAX_COMFORT_TEMP
     min_comfort_c: float = DEFAULT_MIN_COMFORT_TEMP
     min_away_c: float = DEFAULT_MIN_AWAY_TEMP
+    # Independent of the thermal model/decision (which both need ~24h of
+    # history before producing anything) - lets a price source be verified
+    # as actually wired up and returning real data immediately.
+    current_price: float | None = None
+    price_slots_count: int = 0
 
 
 class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
@@ -252,6 +257,8 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
             max_comfort_c=ceiling,
             min_comfort_c=self._min_comfort_c,
             min_away_c=self._min_away_c,
+            current_price=self._read_current_price(price_slots),
+            price_slots_count=len(price_slots),
         )
 
     # --- spa actuation ----------------------------------------------------

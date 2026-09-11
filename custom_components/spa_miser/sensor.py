@@ -81,6 +81,25 @@ SENSOR_DESCRIPTIONS: tuple[SpaMiserSensorDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda d: d.decision.reason if d.decision else None,
     ),
+    # Independent of the thermal model/decision (both need ~24h of history
+    # before producing anything) - the fastest way to confirm a price
+    # source is actually wired up and returning real data, without waiting
+    # a day for the model to fit.
+    SpaMiserSensorDescription(
+        key="current_price",
+        translation_key="current_price",
+        icon="mdi:cash",
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=4,
+        value_fn=lambda d: d.current_price,
+    ),
+    SpaMiserSensorDescription(
+        key="price_slots_available",
+        translation_key="price_slots_available",
+        icon="mdi:format-list-numbered",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda d: d.price_slots_count,
+    ),
     SpaMiserSensorDescription(
         key="loss_coefficient",
         translation_key="loss_coefficient",
