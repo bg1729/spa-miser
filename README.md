@@ -68,8 +68,8 @@ hand.
    before handing over control.
 4. The thermal model needs a few weeks of history (via HA's recorder
    long-term statistics) before it fits well - `sensor.spa_miser_model_fit_quality`
-   (disabled by default; enable it in the entity list) shows the fit's R².
-   `sensor.spa_miser_current_price` populates immediately regardless (it
+   (in the [Thermal model diagnostics](#example-dashboard) card) shows the
+   fit's R². `sensor.spa_miser_current_price` populates immediately regardless (it
    doesn't depend on the model), so it's the fastest way to confirm a price
    source is actually wired up correctly. If your outdoor temperature sensor
    was only just enabled, the model has nothing to fit against yet either -
@@ -120,7 +120,7 @@ device page can.
 | `sensor.spa_miser_water_temperature` / `heating_state` / `outdoor_temperature` | Raw current readings of the configured input entities |
 | `sensor.spa_miser_configured_sources` | Which entity is wired to each role (state = count configured; attributes = the full mapping) |
 | `sensor.spa_miser_price_slots_available` | How many forecast price slots the price source returned |
-| `sensor.spa_miser_loss_coefficient` / `wind_coefficient` / `thermal_mass` / `model_fit_quality` | Fitted model parameters (disabled by default) |
+| `sensor.spa_miser_loss_coefficient` / `wind_coefficient` / `thermal_mass` / `model_fit_quality` | Fitted thermal model internals - see [Thermal model diagnostics](#example-dashboard) |
 
 ## Example dashboard
 
@@ -175,7 +175,20 @@ cards:
       - entity: binary_sensor.spa_miser_heating_recommended
       - entity: sensor.spa_miser_decision_reason
       - entity: sensor.spa_miser_cost_saved_today
+
+  - type: entities
+    title: Thermal model diagnostics
+    entities:
+      - entity: sensor.spa_miser_loss_coefficient
+      - entity: sensor.spa_miser_wind_coefficient
+      - entity: sensor.spa_miser_thermal_mass
+      - entity: sensor.spa_miser_model_fit_quality
 ```
+
+The fitted coefficients above are kept separate from the day-to-day cards -
+they're only useful when judging whether the model's fit is trustworthy
+(e.g. a low `model_fit_quality` explains why the plan looks off), not
+something you'd want cluttering a glance at today's status.
 
 ### Plan vs. actual, with price overlaid (apexcharts-card)
 

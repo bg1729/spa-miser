@@ -141,12 +141,16 @@ SENSOR_DESCRIPTIONS: tuple[SpaMiserSensorDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda d: d.price_slots_count,
     ),
+    # Fitted thermal model internals - grouped as "Thermal model diagnostics"
+    # in the example dashboard, distinct from the raw input readings above
+    # (the device page itself has no third tier to separate them into;
+    # these were disabled-by-default until enabled here for that dashboard
+    # section to actually have something to show).
     SpaMiserSensorDescription(
         key="loss_coefficient",
         translation_key="loss_coefficient",
         entity_category=EntityCategory.DIAGNOSTIC,
         suggested_display_precision=4,
-        entity_registry_enabled_default=False,
         value_fn=lambda d: d.model.loss_coefficient if d.model else None,
     ),
     SpaMiserSensorDescription(
@@ -154,7 +158,6 @@ SENSOR_DESCRIPTIONS: tuple[SpaMiserSensorDescription, ...] = (
         translation_key="wind_coefficient",
         entity_category=EntityCategory.DIAGNOSTIC,
         suggested_display_precision=4,
-        entity_registry_enabled_default=False,
         value_fn=lambda d: d.model.wind_coefficient if d.model else None,
     ),
     SpaMiserSensorDescription(
@@ -162,7 +165,6 @@ SENSOR_DESCRIPTIONS: tuple[SpaMiserSensorDescription, ...] = (
         translation_key="thermal_mass",
         entity_category=EntityCategory.DIAGNOSTIC,
         suggested_display_precision=2,
-        entity_registry_enabled_default=False,
         value_fn=lambda d: d.model.thermal_mass_kwh_per_c if d.model else None,
     ),
     SpaMiserSensorDescription(
@@ -170,7 +172,6 @@ SENSOR_DESCRIPTIONS: tuple[SpaMiserSensorDescription, ...] = (
         translation_key="model_fit_quality",
         entity_category=EntityCategory.DIAGNOSTIC,
         suggested_display_precision=2,
-        entity_registry_enabled_default=False,
         value_fn=lambda d: d.model.r_squared if d.model else None,
     ),
 )
