@@ -41,10 +41,15 @@ hand.
   stays disabled (predictions/decisions won't run) until you add one.
 - Optional: an outdoor wind speed `sensor` entity, for a wind-chill term in
   the model.
-- A time-of-use price source: the
-  [Octopus Energy integration](https://github.com/BottlecapDave/HomeAssistant-OctopusEnergy)
-  (Agile tariff) is supported directly, or use the manual fixed-cheap-hours
-  fallback if you don't have a dynamic tariff yet.
+- A time-of-use price source - three options:
+  - The [Octopus Energy integration](https://github.com/BottlecapDave/HomeAssistant-OctopusEnergy),
+    if you're actually billed on Agile.
+  - **Octopus Agile (public rates)** - pulls Agile rates straight from
+    Octopus's public API (just a GSP region letter, e.g. `E` for West
+    Midlands), no Octopus account needed. Useful for scheduling around real
+    Agile pricing even while billed on a different tariff.
+  - A manual fixed-cheap-hours fallback if you don't have a dynamic tariff at
+    all yet.
 
 ## Setup
 
@@ -60,36 +65,82 @@ hand.
 4. The thermal model needs a few weeks of history (via HA's recorder
    long-term statistics) before it fits well - `sensor.spa_miser_model_fit_quality`
    (disabled by default; enable it in the entity list) shows the fit's R².
+   `sensor.spa_miser_current_price` populates immediately regardless (it
+   doesn't depend on the model), so it's the fastest way to confirm a price
+   source is actually wired up correctly.
+5. To change entities or price source later - including switching between
+   the three price sources - use **Reconfigure** on the integration (⋮ menu
+   on its card in Settings → Devices & Services), not remove-and-re-add.
+   Every field is pre-filled with its current value.
 
 ## Entities created
+
+HA's device page only has two tiers for a sensor (the default section, or a
+collapsed "Diagnostic" one) - not arbitrary named groups - so that's how
+these are split: raw input readings under Diagnostic, spa-miser's own
+model state and outputs in the default section. The [example
+dashboard](#example-dashboard) below groups things more thoroughly than the
+device page can.
+
+**Controls:**
 
 | Entity | Purpose |
 |---|---|
 | `switch.spa_miser_enabled` | Master on/off for automatic control (shadow mode when off) |
 | `switch.spa_miser_away_mode` | Deep setback to the min/away floor |
 | `number.spa_miser_max_comfort_temp` / `min_comfort_temp` / `min_away_temp` | Live-adjustable comfort window |
+
+**Model state & outputs:**
+
+| Entity | Purpose |
+|---|---|
 | `binary_sensor.spa_miser_heating_recommended` | What the decision engine currently recommends |
 | `sensor.spa_miser_model_temperature` | Model-predicted water temperature |
 | `sensor.spa_miser_predicted_kwh_today` | Estimated energy needed today |
 | `sensor.spa_miser_actual_kwh_today` | Measured energy used today |
 | `sensor.spa_miser_cost_saved_today` | Estimated saving vs. a naive always-on baseline |
 | `sensor.spa_miser_decision_reason` | Why the current recommendation was made |
-| `sensor.spa_miser_loss_coefficient` / `wind_coefficient` / `thermal_mass` / `model_fit_quality` | Fitted model diagnostics (disabled by default) |
+| `sensor.spa_miser_current_price` | Current price (p/kWh) from whichever price source is configured - populates immediately, doesn't need the model |
+
+**Diagnostic (collapsed by default on the device page):**
+
+| Entity | Purpose |
+|---|---|
+| `sensor.spa_miser_water_temperature` / `heating_state` / `outdoor_temperature` | Raw current readings of the configured input entities |
+| `sensor.spa_miser_configured_sources` | Which entity is wired to each role (state = count configured; attributes = the full mapping) |
+| `sensor.spa_miser_price_slots_available` | How many forecast price slots the price source returned |
+| `sensor.spa_miser_loss_coefficient` / `wind_coefficient` / `thermal_mass` / `model_fit_quality` | Fitted model parameters (disabled by default) |
 
 ## Example dashboard
 
 Uses only built-in Lovelace cards - no extra frontend dependency required.
+Named sections here give the full Inputs / Model / Controls grouping the
+device page itself can't.
 
 ```yaml
 type: vertical-stack
 cards:
   - type: thermostat
     entity: climate.balboa_spa
-  - type: glance
+
+  - type: entities
+    title: Controls
     entities:
       - entity: switch.spa_miser_enabled
       - entity: switch.spa_miser_away_mode
-      - entity: binary_sensor.spa_miser_heating_recommended
+      - entity: number.spa_miser_max_comfort_temperature
+      - entity: number.spa_miser_min_comfort_temperature
+      - entity: number.spa_miser_min_away_temperature
+
+  - type: entities
+    title: Inputs
+    entities:
+      - entity: sensor.spa_miser_water_temperature
+      - entity: sensor.spa_miser_outdoor_temperature
+      - entity: sensor.spa_miser_heating_state
+      - entity: sensor.spa_miser_current_price
+      - entity: sensor.spa_miser_price_slots_available
+
   - type: history-graph
     title: Model vs. actual temperature
     hours_to_show: 72
@@ -98,6 +149,7 @@ cards:
         name: Model
       - entity: sensor.balboa_spa_current_temperature
         name: Actual
+
   - type: statistics-graph
     title: Daily energy
     period: day
@@ -105,11 +157,13 @@ cards:
     entities:
       - sensor.spa_miser_predicted_kwh_today
       - sensor.spa_miser_actual_kwh_today
+
   - type: entities
-    title: Cost
+    title: Model & decisions
     entities:
-      - sensor.spa_miser_cost_saved_today
-      - sensor.spa_miser_decision_reason
+      - entity: binary_sensor.spa_miser_heating_recommended
+      - entity: sensor.spa_miser_decision_reason
+      - entity: sensor.spa_miser_cost_saved_today
 ```
 
 For nicer overlaid line charts, the HACS card

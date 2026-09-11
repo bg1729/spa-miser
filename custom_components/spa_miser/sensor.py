@@ -40,6 +40,9 @@ SENSOR_DESCRIPTIONS: tuple[SpaMiserSensorDescription, ...] = (
     # Raw current readings of the configured inputs - what spa-miser is
     # actually seeing right now, without cross-referencing entity_ids from
     # sensor.spa_miser_configured_sources against those entities elsewhere.
+    # Diagnostic: these are pass-through telemetry, not spa-miser's own
+    # output, so they belong in the device page's collapsed section rather
+    # than crowding the headline sensors below.
     SpaMiserSensorDescription(
         key="water_temperature",
         translation_key="water_temperature",
@@ -47,12 +50,14 @@ SENSOR_DESCRIPTIONS: tuple[SpaMiserSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         suggested_display_precision=1,
+        entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda d: d.current_temperature_c,
     ),
     SpaMiserSensorDescription(
         key="heating_state",
         translation_key="heating_state",
         icon="mdi:fire",
+        entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda d: d.heating_state,
     ),
     SpaMiserSensorDescription(
@@ -62,8 +67,11 @@ SENSOR_DESCRIPTIONS: tuple[SpaMiserSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         suggested_display_precision=1,
+        entity_category=EntityCategory.DIAGNOSTIC,
         value_fn=lambda d: d.outdoor_temperature_c,
     ),
+    # --- Model state & outputs: the headline numbers, kept in the default
+    # (non-diagnostic) section so they're visible without expanding anything.
     SpaMiserSensorDescription(
         key="model_temperature",
         translation_key="model_temperature",
@@ -105,7 +113,7 @@ SENSOR_DESCRIPTIONS: tuple[SpaMiserSensorDescription, ...] = (
     SpaMiserSensorDescription(
         key="decision_reason",
         translation_key="decision_reason",
-        entity_category=EntityCategory.DIAGNOSTIC,
+        icon="mdi:message-text-outline",
         value_fn=lambda d: d.decision.reason if d.decision else None,
     ),
     # Independent of the thermal model/decision (both need ~24h of history
@@ -117,8 +125,14 @@ SENSOR_DESCRIPTIONS: tuple[SpaMiserSensorDescription, ...] = (
         translation_key="current_price",
         icon="mdi:cash",
         state_class=SensorStateClass.MEASUREMENT,
-        suggested_display_precision=4,
-        value_fn=lambda d: d.current_price,
+        # Displayed as pence/kWh (e.g. "20.1 p/kWh") rather than pounds -
+        # device_class=monetary would force an ISO currency code (GBP) as
+        # the unit, which can't express a "p/kWh" rate; PriceSlot.price is
+        # pounds internally (matches how the price sources parse it), so
+        # convert here at the display boundary only.
+        native_unit_of_measurement="p/kWh",
+        suggested_display_precision=1,
+        value_fn=lambda d: d.current_price * 100 if d.current_price is not None else None,
     ),
     SpaMiserSensorDescription(
         key="price_slots_available",
