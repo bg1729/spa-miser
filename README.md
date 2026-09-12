@@ -274,13 +274,20 @@ variables:
     (() => { const s =
     (states['sensor.spa_miser_price_slots_available'].attributes.slots)||[];
     const end = s.length ? Math.max(...s.map(x => new Date(x.end).getTime()))
-    : Date.now(); return Math.round((end - Date.now()) / 60000) + 'min'; })()
+    : Date.now(); const m = Math.round((end - Date.now()) / 60000);
+    return (m >= 0 ? '+' : '') + m + 'min'; })()
 card:
   span:
     end: minute
     offset: ${PRICE_END_OFFSET}
   graph_span: 36h
 ```
+
+apexcharts-card requires `span.offset` to start with an explicit `+` or
+`-` - even for a positive value, plain `"837min"` is rejected with
+`'span.offset: 837min' should start with a '+' or a '-'`, so the sign has
+to be added explicitly rather than relying on JS's default (sign-less)
+number-to-string conversion.
 
 `PRICE_END_OFFSET` finds the latest slot end across the whole price
 forecast (sourced from `sensor.spa_miser_price_slots_available`,
@@ -336,7 +343,8 @@ variables:
     (() => { const s =
     (states['sensor.spa_miser_price_slots_available'].attributes.slots)||[];
     const end = s.length ? Math.max(...s.map(x => new Date(x.end).getTime()))
-    : Date.now(); return Math.round((end - Date.now()) / 60000) + 'min'; })()
+    : Date.now(); const m = Math.round((end - Date.now()) / 60000);
+    return (m >= 0 ? '+' : '') + m + 'min'; })()
 # grid_options belongs on this outer card - the section's grid layout
 # doesn't look inside `card:` for it, which is why an earlier version of
 # this (with grid_options nested under `card:`) didn't fill the full width.
