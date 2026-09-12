@@ -679,6 +679,28 @@ contacted.
     system's chance to thermally catch up to the model, and the
     only chance to confirm (or correct) the model's belief with real data.
 
+- **`actual_kwh_today` and `cost_saved_today` measure the whole spa, not
+  just heating.** The configured `energy_entity`/`power_entity` are
+  typically a single whole-circuit meter (e.g. a Shelly EM clamp on the
+  spa's incoming supply) rather than a heater-isolated one, so they also
+  capture the circulation pump's filtration cycles and baseline standby
+  draw. Measured directly against three representative days of one real
+  tub's history (energy-integrated against actual `heating_state`
+  transitions, not just sampled): **circulation was ~25% of total
+  measured energy, standby ~1.5%, heating the remaining ~73%** - so these
+  two sensors should be read as "total spa energy," not "heating energy."
+  Deliberately not corrected in software: the natural fix (a flat
+  efficiency-style discount) would only be honest applied to these two
+  purely-informational sensors - applying it anywhere upstream (the
+  thermal model fit, or `heater_power_kw`) would either do nothing
+  (uniformly rescaling a regression's input is absorbed by the fitted
+  coefficient) or actively corrupt predictions (if the correction isn't
+  applied identically at both fit-time and decision-time). The DP's own
+  `heater_power_kw` estimate isn't meaningfully affected by this at all -
+  it already isolates real heater draw via a 90th-percentile-of-hourly-*max*
+  estimate, and the heater's peak power (~3.1kW, measured) dominates the
+  pump's (~0.4kW) by roughly 8x.
+
 ## Not yet implemented (ideas, not commitments)
 
 - Anticipating planned usage ("warm by 6pm") rather than the comfort window
