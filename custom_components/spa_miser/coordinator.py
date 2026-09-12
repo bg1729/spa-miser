@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 
 from homeassistant.config_entries import ConfigEntry
@@ -92,6 +92,11 @@ class SpaMiserData:
     # as actually wired up and returning real data immediately.
     current_price: float | None = None
     price_slots_count: int = 0
+    # The raw forecast as received from the price source - independent of
+    # whether a daily strategy has been computed from it, so a price chart
+    # can show the full known-ahead curve even before/without a strategy
+    # (e.g. the thermal model hasn't fit yet, or a fit failed).
+    price_slots: list[PriceSlot] = field(default_factory=list)
     # Raw current readings of the configured input entities, so what
     # spa-miser is actually seeing can be checked at a glance rather than
     # cross-referencing sensor.spa_miser_configured_sources' entity_ids
@@ -301,6 +306,7 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
             min_away_c=self._min_away_c,
             current_price=self._read_current_price(price_slots),
             price_slots_count=len(price_slots),
+            price_slots=price_slots,
         )
 
     # --- spa actuation ----------------------------------------------------

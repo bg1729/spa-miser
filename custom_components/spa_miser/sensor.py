@@ -135,13 +135,6 @@ SENSOR_DESCRIPTIONS: tuple[SpaMiserSensorDescription, ...] = (
         suggested_display_precision=1,
         value_fn=lambda d: d.current_price * 100 if d.current_price is not None else None,
     ),
-    SpaMiserSensorDescription(
-        key="price_slots_available",
-        translation_key="price_slots_available",
-        icon="mdi:format-list-numbered",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        value_fn=lambda d: d.price_slots_count,
-    ),
     # Fitted thermal model internals - grouped as "Thermal model diagnostics"
     # in the example dashboard, distinct from the raw input readings above
     # (the device page itself has no third tier to separate them into;
@@ -225,7 +218,11 @@ async def async_setup_entry(
     coordinator: SpaMiserCoordinator = hass.data[DOMAIN][entry.entry_id]
     async_add_entities(
         [SpaMiserSensor(coordinator, description) for description in SENSOR_DESCRIPTIONS]
-        + [ConfiguredSourcesSensor(coordinator), DailyStrategySensor(coordinator)]
+        + [
+            ConfiguredSourcesSensor(coordinator),
+            DailyStrategySensor(coordinator),
+            PriceForecastSensor(coordinator),
+        ]
     )
 
 
@@ -315,5 +312,47 @@ class DailyStrategySensor(SpaMiserEntity, SensorEntity):
                     "heat_on": slot.heat_on,
                 }
                 for slot in strategy.slots
+            ]
+        }
+
+
+class PriceForecastSensor(SpaMiserEntity, SensorEntity):
+    """The raw price forecast exactly as received from the price source.
+
+    Deliberately independent of sensor.spa_miser_daily_strategy: that plan
+    only exists once the thermal model has fit and computed a strategy from
+    this same data, so a price-only chart shouldn't have to wait on (or
+    depend on the success of) either of those - this exposes the forecast
+    the moment the price source itself returns it. State is the slot count
+    (unchanged from before this became a dedicated sensor); attributes carry
+    the full curve for a chart's data_generator, since HA's built-in history
+    cards can't render future timestamps.
+    """
+
+    _attr_translation_key = "price_slots_available"
+    _attr_icon = "mdi:format-list-numbered"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: SpaMiserCoordinator) -> None:
+        super().__init__(coordinator, "price_slots_available")
+
+    @property
+    def suggested_object_id(self) -> str:
+        return "price_slots_available"
+
+    @property
+    def native_value(self) -> int:
+        return self.coordinator.data.price_slots_count
+
+    @property
+    def extra_state_attributes(self) -> dict[str, object]:
+        return {
+            "slots": [
+                {
+                    "start": slot.start.isoformat(),
+                    "end": slot.end.isoformat(),
+                    "price": slot.price,
+                }
+                for slot in self.coordinator.data.price_slots
             ]
         }
