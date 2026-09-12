@@ -6,7 +6,8 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Event, EventStateChangedData, HomeAssistant
+from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
@@ -58,7 +59,7 @@ from .price_sources import PriceSlot, PriceSource
 from .price_sources.manual import ManualPriceSource
 from .price_sources.octopus_agile import OctopusAgilePriceSource
 from .price_sources.octopus_agile_public import OctopusAgilePublicPriceSource
-from .spa_control import SpaControl
+from .spa_control import UNAVAILABLE_STATES, SpaControl
 from .strategy import DailyStrategy, compute_strategy
 from .thermal_model import ThermalModelParams
 from .thermal_model import fit as fit_model
@@ -161,12 +162,48 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
 
         self._energy_day: date | None = None
         self._energy_baseline_kwh: float | None = None
+        self._unsub_input_ready = None
 
     def async_setup(self) -> None:
         self.spa_control.async_setup()
+        input_entities = [
+            entity_id
+            for entity_id in (
+                self.entry.data.get(CONF_WATER_TEMP_SENSOR),
+                self.entry.data.get(CONF_CLIMATE_ENTITY),
+                self.entry.data.get(CONF_HEATING_STATE_ENTITY),
+                self.entry.data.get(CONF_OUTDOOR_TEMP_SENSOR),
+            )
+            if entity_id
+        ]
+        self._unsub_input_ready = async_track_state_change_event(
+            self.hass, input_entities, self._handle_input_ready
+        )
 
     def async_unload(self) -> None:
         self.spa_control.async_unload()
+        if self._unsub_input_ready is not None:
+            self._unsub_input_ready()
+            self._unsub_input_ready = None
+
+    async def _handle_input_ready(self, event: Event[EventStateChangedData]) -> None:
+        """A configured input entity just reported real data.
+
+        Most relevant right after a restart: the coordinator's first
+        refresh runs immediately at setup, which can easily race ahead of
+        MQTT-based entities reconnecting (they can take anywhere from
+        seconds to a couple of minutes). Without this, that unlucky first
+        snapshot - sensors reading unknown/unavailable - would otherwise
+        persist until the next scheduled refresh, up to
+        COORDINATOR_UPDATE_INTERVAL_MINUTES (30) later, despite the
+        underlying data actually being ready almost immediately.
+        """
+        old_state = event.data["old_state"]
+        new_state = event.data["new_state"]
+        was_unavailable = old_state is None or old_state.state in UNAVAILABLE_STATES
+        is_now_available = new_state is not None and new_state.state not in UNAVAILABLE_STATES
+        if was_unavailable and is_now_available:
+            await self.async_request_refresh()
 
     # --- public control surface used by switch.py / number.py -------------
 
