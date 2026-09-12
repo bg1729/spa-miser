@@ -231,6 +231,13 @@ series) - same warm family, but visually distinct from both each other and
 from the (also-orange) price line. This is what actually shows *when* the
 heater ran (or will run) against *when* electricity was cheap.
 
+Every series sets `show.legend_value: false`. apexcharts-card's default
+legend shows each series' *last value within the currently-visible time
+range* - for a forecast series with a 48h `graph_span`, that's the
+prediction at the far future edge of the chart, easily misread as "right
+now." The chart already has an explicit `now` marker for that, so the
+legend numbers are redundant at best and misleading at worst.
+
 ```yaml
 type: custom:apexcharts-card
 header:
@@ -270,12 +277,16 @@ series:
     yaxis_id: temp
     color: "#1f77b4"
     stroke_width: 1.5
+    show:
+      legend_value: false
   - entity: sensor.spa_miser_daily_strategy
     name: Planned temperature
     yaxis_id: temp
     color: "#17becf"
     curve: stepline
     stroke_width: 1.5
+    show:
+      legend_value: false
     data_generator: |
       return entity.attributes.slots.map((slot) => [
         new Date(slot.start).getTime(), slot.planned_temp_c
@@ -286,6 +297,8 @@ series:
     color: "#ff7f0e"
     curve: stepline
     stroke_width: 1.5
+    show:
+      legend_value: false
     data_generator: |
       return entity.attributes.slots.map((slot) => [
         new Date(slot.start).getTime(), slot.price * 100
@@ -298,6 +311,8 @@ series:
     opacity: 0.25
     curve: stepline
     stroke_width: 2
+    show:
+      legend_value: false
     transform: 'return (x === "Heating (active)" || x === "Heating (alternate stage)") ? 1 : 0;'
   - entity: sensor.spa_miser_daily_strategy
     name: Planned heating
@@ -307,6 +322,8 @@ series:
     opacity: 0.15
     curve: stepline
     stroke_width: 2
+    show:
+      legend_value: false
     data_generator: |
       return entity.attributes.slots.map((slot) => [
         new Date(slot.start).getTime(), slot.heat_on ? 1 : 0
