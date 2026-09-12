@@ -233,28 +233,41 @@ heater ran (or will run) against *when* electricity was cheap.
 
 Every series sets `show.legend_value: false`. apexcharts-card's default
 legend shows each series' *last value within the currently-visible time
-range* - for a forecast series with a 48h `graph_span`, that's the
-prediction at the far future edge of the chart, easily misread as "right
-now." The chart already has an explicit `now` marker for that, so the
-legend numbers are redundant at best and misleading at worst.
+range* - for a forecast series that's the prediction at the far future edge
+of the chart, easily misread as "right now." The chart already has an
+explicit `now` marker for that, so the legend numbers are redundant at best
+and misleading at worst.
 
 Every series also sets `extend_to`, overriding apexcharts-card's default of
 `'end'` (flat-line the last known value all the way to the edge of the
-48h `graph_span`). Left at the default, the price/planned series would draw
-a straight, misleadingly-confident line across however much of the chart
-has no real data yet - most of the time we only have real Agile rates
-through midnight tonight (tomorrow's don't publish until ~4pm), so a chunk
-of that 48h span is often genuinely unknown, and pretending otherwise by
-repeating the last known price is actively wrong, not just uninformative.
-`extend_to: false` on `Expected temperature`/`Price`/`Planned heating` stops
-each line exactly where its real data ends, leaving the rest of the chart
-blank until the next price update actually extends it - which is also what
-"start a new chart" on each re-plan amounts to in practice: the same
-persistent card just always draws exactly as much real data as currently
-exists, no more. `extend_to: 'now'` on the two `Actual` series (instead of
-the same default) extends *those* only up to the present moment, not into
-the future - they're real recorded state, but still can't have data beyond
+visible chart). Left at the default, the price/planned series would draw a
+straight, misleadingly-confident line across however much of the chart has
+no real data yet - most of the time we only have real Agile rates through
+midnight tonight (tomorrow's don't publish until ~4pm), so a chunk of the
+chart is often genuinely unknown, and pretending otherwise by repeating the
+last known price is actively wrong, not just uninformative. `extend_to:
+false` on `Expected temperature`/`Price`/`Planned heating` stops each line
+exactly where its real data ends, leaving the rest of the chart blank until
+the next price update actually extends it - which is also what "start a
+new chart" on each re-plan amounts to in practice: the same persistent
+card just always draws exactly as much real data as currently exists, no
+more. `extend_to: 'now'` on the two `Actual` series (instead of the same
+default) extends *those* only up to the present moment, not into the
+future - they're real recorded state, but still can't have data beyond
 "now" either.
+
+`graph_span: 36h` is a compromise, not an exact fit: apexcharts-card has no
+way to bind the visible x-axis range to actual entity data (`graph_span`
+only takes a fixed duration, and `apex_config` fields aren't templated
+against entity state), so it can't be made to end exactly where our price
+data ends - that boundary moves during the day anyway. Real coverage is
+actually bimodal, not gradual: before Octopus publishes tomorrow's rates
+(~4pm) we only have ~24h of real data (today, from local midnight); after
+~4pm we have a full ~48h (today + tomorrow). 36h splits the difference -
+away from the default 48h, a lot of blank canvas after a plan recomputes
+mid-morning would be visible; fixed at 24h, part of tomorrow's already-known
+plan would be clipped off every evening. Either edge of that range is a
+defensible choice; this just picks the middle.
 
 Two more series, `Max comfort`/`Min comfort`, draw dotted horizontal
 reference lines for the comfort window - bound directly to
@@ -277,7 +290,7 @@ apex_config:
     # rectangles' border, 4 dots the two setpoint reference lines, 0
     # (solid) for every other series.
     dashArray: [0, 0, 0, 3, 3, 4, 4]
-graph_span: 48h
+graph_span: 36h
 span:
   start: day
 now:
