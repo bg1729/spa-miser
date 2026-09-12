@@ -1,4 +1,4 @@
-"""number.spa_miser_{max_comfort,min_comfort,min_away}_temp - live-adjustable comfort window."""
+"""number.spa_miser_{max_comfort,min_comfort,min_away}_temp / max_price - live-adjustable settings."""
 from __future__ import annotations
 
 from collections.abc import Callable, Coroutine
@@ -35,7 +35,7 @@ async def async_setup_entry(
                 key="max_comfort_temp",
                 icon="mdi:thermometer-high",
                 # Written to the spa as the High Range preset's setpoint
-                # (see coordinator._async_apply_decision) - bounded to that
+                # (see coordinator._async_apply_control) - bounded to that
                 # preset's real valid band, not the full TEMP_MIN/TEMP_MAX.
                 min_value=HIGH_RANGE_MIN_C,
                 max_value=HIGH_RANGE_MAX_C,
@@ -59,21 +59,36 @@ async def async_setup_entry(
                 key="min_away_temp",
                 icon="mdi:thermometer-low",
                 # Written to the spa as the Low Range preset's setpoint (see
-                # coordinator._async_apply_decision) - bounded to that
+                # coordinator._async_apply_control) - bounded to that
                 # preset's real valid band, not the full TEMP_MIN/TEMP_MAX.
                 min_value=LOW_RANGE_MIN_C,
                 max_value=LOW_RANGE_MAX_C,
                 get_fn=lambda c: c.min_away_c,
                 set_fn=lambda c, v: c.async_set_min_away_c(v),
             ),
+            _SpaMiserNumber(
+                coordinator,
+                key="max_price",
+                icon="mdi:cash-off",
+                # Never written to the spa directly - purely a decision
+                # threshold (see coordinator._compute_active_range). Stored
+                # internally in GBP/kWh like every other price value in the
+                # codebase, but edited here in p/kWh - matching
+                # sensor.spa_miser_current_price's display convention - for
+                # direct at-a-glance comparison against the current price.
+                device_class=None,
+                unit="p/kWh",
+                step=1.0,
+                min_value=0.0,
+                max_value=200.0,
+                get_fn=lambda c: c.max_price * 100,
+                set_fn=lambda c, v: c.async_set_max_price(v / 100),
+            ),
         ]
     )
 
 
 class _SpaMiserNumber(SpaMiserEntity, NumberEntity):
-    _attr_device_class = NumberDeviceClass.TEMPERATURE
-    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
-    _attr_native_step = TEMP_STEP
     _attr_mode = NumberMode.BOX
 
     def __init__(
@@ -86,6 +101,9 @@ class _SpaMiserNumber(SpaMiserEntity, NumberEntity):
         max_value: float,
         get_fn: Callable[[SpaMiserCoordinator], float],
         set_fn: Callable[[SpaMiserCoordinator, float], Coroutine[Any, Any, None]],
+        device_class: NumberDeviceClass | None = NumberDeviceClass.TEMPERATURE,
+        unit: str = UnitOfTemperature.CELSIUS,
+        step: float = TEMP_STEP,
     ) -> None:
         super().__init__(coordinator, key)
         self._key = key
@@ -93,6 +111,9 @@ class _SpaMiserNumber(SpaMiserEntity, NumberEntity):
         self._attr_icon = icon
         self._attr_native_min_value = min_value
         self._attr_native_max_value = max_value
+        self._attr_device_class = device_class
+        self._attr_native_unit_of_measurement = unit
+        self._attr_native_step = step
         self._get_fn = get_fn
         self._set_fn = set_fn
 

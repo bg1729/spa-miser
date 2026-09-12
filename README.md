@@ -65,21 +65,18 @@ common source of confusion (including for the author, mid-project):
 
 | spa-miser concept | The tub's own concept | Relationship |
 |---|---|---|
-| `max_comfort_temp` (the ceiling) | `High Range` preset | Written to the spa **as** the High Range setpoint whenever away mode is off. Bounded 26-40°C - the real hardware's own valid range for High Range (see below). |
-| `min_away_temp` (the away setback) | `Low Range` preset | Written to the spa **as** the Low Range setpoint whenever away mode is on. Bounded 10-26°C - the real hardware's own valid range for Low Range. |
-| `min_comfort_temp` (the day-to-day floor) | *(nothing - no equivalent)* | Purely an internal decision threshold ("start heating before this is breached") - **never** written to the spa as a setpoint. The tub has no third range to hold it at. |
-| `away_mode` (a switch) | *(nothing - no equivalent)* | spa-miser's own idea; toggling it is what decides *which* of the above two presets/setpoints gets used. |
+| `max_comfort_temp` (the ceiling) | `High Range` preset | Written to the spa **as** the High Range setpoint whenever `heat_recommended` is true and High Range is in force. Bounded 26-40°C - the real hardware's own valid range for High Range (see below). |
+| `min_comfort_temp` (the day-to-day floor) | `High Range` preset | Written to the spa **as** the High Range setpoint while coasting (`heat_recommended` false) - see "How it decides" below for why this is a real setpoint now, not just a soft threshold. |
+| `min_away_temp` (the away/price-cap setback) | `Low Range` preset | Written to the spa **as** the Low Range setpoint whenever Low Range is in force. Bounded 10-26°C - the real hardware's own valid range for Low Range. |
+| `away_mode` (a switch) / `max_price` (a threshold) | *(nothing - no equivalent)* | spa-miser's own ideas; either one being active is what decides *which* of the two presets/setpoints above is in force - see `sensor.spa_miser_active_range`. |
 
 The `High Range` / `Low Range` names and their 26-40°C / 10-26°C bands come
 from the Balboa protocol itself (verified directly against the gateway
 firmware's own `spaProtocolActiveSetpointBand()`) - they're just two halves
 of one continuous setpoint dial, with **no inherent meaning** ("high" isn't
-"comfort", "low" isn't "away"). Attaching that meaning - ceiling ↔ High
-Range, away setback ↔ Low Range - is entirely spa-miser's own design
-choice. `min_comfort_temp` has no equivalent on the tub's side at all: the
-water can still coast well below it in either range (the range only
-constrains what *setpoint* you can dial in, not how far the water can
-actually drift), which is exactly what `min_comfort_temp` watches for.
+"comfort", "low" isn't "away"). Attaching that meaning - ceiling/floor ↔
+High Range, away/price-cap setback ↔ Low Range - is entirely spa-miser's
+own design choice.
 
 ## Setup
 
@@ -123,7 +120,8 @@ device page can.
 |---|---|
 | `switch.spa_miser_enabled` | Master on/off for automatic control (shadow mode when off) |
 | `switch.spa_miser_away_mode` | Deep setback to the min/away floor |
-| `number.spa_miser_max_comfort_temp` / `min_comfort_temp` / `min_away_temp` | Live-adjustable comfort window - `max_comfort_temp` (26-40°C) and `min_away_temp` (10-26°C) are each bounded to the real hardware's valid setpoint range for the High Range / Low Range preset they're written to; `min_comfort_temp` is a decision threshold only, never written to the spa directly |
+| `number.spa_miser_max_comfort_temp` / `min_comfort_temp` / `min_away_temp` | Live-adjustable comfort window - `max_comfort_temp` (26-40°C) and `min_away_temp` (10-26°C) are each bounded to the real hardware's valid setpoint range for the High Range / Low Range preset they're written to; `min_comfort_temp` is a decision threshold that's also written to the spa (as the High Range setpoint) while coasting - see "How it decides" below |
+| `number.spa_miser_max_price` | Above this price (p/kWh), fall back to the Low Range/`min_away_temp` safety floor instead of paying to defend the comfort window - a decision threshold only, never written to the spa directly. Defaults high enough to be a no-op until you lower it |
 | `button.spa_miser_estimate_initial_model` | Bootstraps a first model fit now instead of waiting ~24h - see [Bootstrapping the model](#bootstrapping-the-model) |
 
 **Model state & outputs:**
@@ -139,6 +137,7 @@ device page can.
 | `sensor.spa_miser_control_status` | Whether spa-miser can actually act right now: `Disabled`, `Paused (manual override)`, `Unavailable`, `Not ready yet`, or `Active` - in particular, a manual-override pause (see `manual_override_minutes`) is otherwise invisible from every other entity, since it looks identical to "nothing to do right now". `override_until` attribute has the resume time when paused. |
 | `sensor.spa_miser_current_price` | Current price (p/kWh) from whichever price source is configured - populates immediately, doesn't need the model |
 | `sensor.spa_miser_daily_strategy` | The committed 24h plan: state is when it was last computed, `slots` attribute has the planned temperature/price/heat-on per slot (see [Example dashboard](#example-dashboard)) |
+| `sensor.spa_miser_active_range` | Which hardware preset is actually in force right now (`High Range` / `Low Range`) and why - `reason` attribute is `Normal`, `Away mode`, or `Price cap exceeded` |
 
 **Diagnostic (collapsed by default on the device page):**
 
@@ -598,6 +597,25 @@ Both paths respect `switch.spa_miser_enabled` the same way - shadow mode
 calls the climate services, so `sensor.spa_miser_daily_strategy` and the
 model-vs-actual graph work the same whether or not spa-miser is actually
 driving the tub.
+
+**Never fully "off", and a price cap.** Whichever path produces a
+`heat_recommended` decision, spa-miser never commands the spa's `hvac_mode`
+to `off` - only ever `heat`, with the *setpoint* varying between the
+comfort ceiling and floor. This means the spa's own onboard thermostat is
+always actively defending something, so a Home Assistant or spa-miser
+outage can't leave the heater fully undefended mid-coast.
+
+Separately, `number.spa_miser_max_price` lets you cap what you're willing
+to spend defending the *comfort* window at all: above that price, spa-miser
+falls back to the Low Range/`min_away_temp` safety floor instead - the same
+one `away_mode` uses - accepting discomfort rather than an expensive bill,
+while still actively heating to that floor if needed. This check is
+deliberately independent of the DP/decision engine above (which stays
+unaware the cap exists, and would otherwise keep recommending heating to
+defend the comfort floor even at extreme prices) - it's a simple,
+stateless override applied only when actually commanding the spa, evaluated
+fresh every cycle against the current price. `sensor.spa_miser_active_range`
+shows which preset is actually in force right now, and why.
 
 ## Bootstrapping the model
 

@@ -65,6 +65,7 @@
       "price_slots_available": { "name": "Price slots available" },
       "decision_reason": { "name": "Decision reason" },
       "control_status": { "name": "Control status" },
+      "active_range": { "name": "Active range" },
       "loss_coefficient": { "name": "Fitted loss coefficient" },
       "wind_coefficient": { "name": "Fitted wind coefficient" },
       "thermal_mass": { "name": "Estimated thermal mass" },
@@ -83,7 +84,8 @@
     "number": {
       "max_comfort_temp": { "name": "Max comfort temperature" },
       "min_comfort_temp": { "name": "Min comfort temperature" },
-      "min_away_temp": { "name": "Min (away) temperature" }
+      "min_away_temp": { "name": "Min (away) temperature" },
+      "max_price": { "name": "Max price" }
     },
     "button": {
       "estimate_initial_model": {

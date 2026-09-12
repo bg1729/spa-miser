@@ -29,6 +29,7 @@ from .const import (
 )
 from .coordinator import SpaMiserCoordinator, SpaMiserData
 from .entity import SpaMiserEntity
+from .strategy import serialize_strategy
 from .thermal_model import estimated_volume_liters
 
 
@@ -226,6 +227,7 @@ async def async_setup_entry(
             DailyStrategySensor(coordinator),
             PriceForecastSensor(coordinator),
             ControlStatusSensor(coordinator),
+            ActiveRangeSensor(coordinator),
         ]
     )
 
@@ -306,18 +308,7 @@ class DailyStrategySensor(SpaMiserEntity, SensorEntity):
         strategy = self.coordinator.strategy
         if strategy is None:
             return {"slots": []}
-        return {
-            "slots": [
-                {
-                    "start": slot.start.isoformat(),
-                    "end": slot.end.isoformat(),
-                    "price": slot.price,
-                    "planned_temp_c": slot.planned_temp_c,
-                    "heat_on": slot.heat_on,
-                }
-                for slot in strategy.slots
-            ]
-        }
+        return {"slots": serialize_strategy(strategy)["slots"]}
 
 
 class PriceForecastSensor(SpaMiserEntity, SensorEntity):
@@ -393,3 +384,34 @@ class ControlStatusSensor(SpaMiserEntity, SensorEntity):
     def extra_state_attributes(self) -> dict[str, object]:
         override_until = self.coordinator.data.control_override_until
         return {"override_until": override_until.isoformat() if override_until else None}
+
+
+class ActiveRangeSensor(SpaMiserEntity, SensorEntity):
+    """Which hardware preset is currently commanded, and why.
+
+    Away mode and the price cap (see coordinator._compute_active_range)
+    both force Low Range, and would otherwise be indistinguishable from
+    each other or from normal operation - the spa behaves identically
+    regardless of which one caused it.
+    """
+
+    _attr_translation_key = "active_range"
+    _attr_icon = "mdi:swap-horizontal"
+
+    _REASON_LABELS = {
+        "normal": "Normal",
+        "away_mode": "Away mode",
+        "price_cap": "Price cap exceeded",
+    }
+
+    def __init__(self, coordinator: SpaMiserCoordinator) -> None:
+        super().__init__(coordinator, "active_range")
+
+    @property
+    def native_value(self) -> str:
+        return self.coordinator.data.active_preset
+
+    @property
+    def extra_state_attributes(self) -> dict[str, object]:
+        reason = self.coordinator.data.range_reason
+        return {"reason": self._REASON_LABELS.get(reason, reason)}

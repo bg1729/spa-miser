@@ -2,7 +2,7 @@
 setpoint bands, not just TEMP_MIN/TEMP_MAX.
 
 max_comfort_temp and min_away_temp are written straight to the spa as the
-High Range / Low Range preset's setpoint (coordinator._async_apply_decision)
+High Range / Low Range preset's setpoint (coordinator._async_apply_control)
 - the Balboa protocol rejects/clamps a setpoint outside the band matching
 the currently-selected preset (verified against the gateway firmware's own
 spaProtocolActiveSetpointBand()), so these entities must never offer a value
@@ -88,3 +88,18 @@ async def test_comfort_number_bounds_match_the_spa_preset_bands(
     min_comfort = hass.states.get("number.spa_miser_min_comfort_temp")
     assert float(min_comfort.attributes["min"]) == TEMP_MIN
     assert float(min_comfort.attributes["max"]) == TEMP_MAX
+
+    # max_price is a decision threshold only, edited in p/kWh even though
+    # it's stored internally in GBP/kWh like every other price value.
+    max_price = hass.states.get("number.spa_miser_max_price")
+    assert max_price.attributes["unit_of_measurement"] == "p/kWh"
+    assert float(max_price.state) == 200.0  # DEFAULT_MAX_PRICE (2.00 GBP) * 100
+
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+    await hass.services.async_call(
+        "number",
+        "set_value",
+        {"entity_id": "number.spa_miser_max_price", "value": 45.0},
+        blocking=True,
+    )
+    assert coordinator.max_price == 0.45  # converted back to GBP/kWh internally

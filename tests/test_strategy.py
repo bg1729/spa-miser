@@ -5,7 +5,11 @@ from datetime import datetime, timedelta, timezone
 
 from custom_components.spa_miser.decision_engine import ForecastPoint
 from custom_components.spa_miser.price_sources import PriceSlot
-from custom_components.spa_miser.strategy import compute_strategy
+from custom_components.spa_miser.strategy import (
+    compute_strategy,
+    deserialize_strategy,
+    serialize_strategy,
+)
 from custom_components.spa_miser.thermal_model import ThermalModelParams
 
 NOW = datetime(2026, 1, 1, 0, 0, tzinfo=timezone.utc)
@@ -218,3 +222,33 @@ def test_slot_at_looks_up_the_containing_slot():
     assert found is not None
     assert found.start == NOW + timedelta(hours=5)
     assert strategy.slot_at(NOW + timedelta(hours=100)) is None
+
+
+def test_serialize_then_deserialize_round_trips_to_an_equal_strategy():
+    strategy = compute_strategy(
+        now=NOW,
+        current_temp_c=CEILING_C,
+        floor_c=FLOOR_C,
+        ceiling_c=CEILING_C,
+        forecast=_hourly_forecast(24),
+        price_slots=_hourly_slots([0.30] * 12 + [0.05] * 12),
+        model=MODEL,
+        heater_power_kw=HEATER_POWER_KW,
+    )
+    assert strategy is not None
+
+    restored = deserialize_strategy(serialize_strategy(strategy))
+
+    assert restored == strategy
+
+
+def test_deserialize_returns_none_for_malformed_input():
+    assert deserialize_strategy({}) is None
+    assert deserialize_strategy({"computed_at": "not a datetime", "slots": []}) is None
+    assert deserialize_strategy({"computed_at": NOW.isoformat(), "slots": "not a list"}) is None
+    assert (
+        deserialize_strategy(
+            {"computed_at": NOW.isoformat(), "slots": [{"start": NOW.isoformat()}]}
+        )
+        is None
+    )

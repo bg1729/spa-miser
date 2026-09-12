@@ -19,6 +19,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
+from homeassistant.util import dt as dt_util
+
 from .decision_engine import ForecastPoint
 from .price_sources import PriceSlot
 from .thermal_model import ThermalModelParams, predict_trajectory
@@ -53,6 +55,58 @@ class DailyStrategy:
         for slot in self.slots:
             if slot.start <= at < slot.end:
                 return slot
+        return None
+
+
+def serialize_strategy(strategy: DailyStrategy) -> dict:
+    """JSON-compatible form for sensor.spa_miser_daily_strategy's
+    attributes and for persisting across restarts (see coordinator.py)."""
+    return {
+        "computed_at": strategy.computed_at.isoformat(),
+        "slots": [
+            {
+                "start": slot.start.isoformat(),
+                "end": slot.end.isoformat(),
+                "price": slot.price,
+                "planned_temp_c": slot.planned_temp_c,
+                "heat_on": slot.heat_on,
+            }
+            for slot in strategy.slots
+        ],
+    }
+
+
+def _parse_required_datetime(value: object) -> datetime:
+    # dt_util.parse_datetime returns None (rather than raising) on invalid
+    # input - normalize that into an exception so the single try/except in
+    # deserialize_strategy below catches every failure mode consistently.
+    if not isinstance(value, str):
+        raise ValueError(f"expected an ISO datetime string, got {value!r}")
+    parsed = dt_util.parse_datetime(value)
+    if parsed is None:
+        raise ValueError(f"not a valid ISO datetime: {value!r}")
+    return parsed
+
+
+def deserialize_strategy(data: dict) -> DailyStrategy | None:
+    """None on any malformed/unexpected input - a corrupt or
+    unexpectedly-shaped store should never crash startup, just fall back
+    to recomputing from scratch (the existing "no strategy yet" path)."""
+    try:
+        return DailyStrategy(
+            computed_at=_parse_required_datetime(data["computed_at"]),
+            slots=[
+                StrategySlot(
+                    start=_parse_required_datetime(s["start"]),
+                    end=_parse_required_datetime(s["end"]),
+                    price=s["price"],
+                    planned_temp_c=s["planned_temp_c"],
+                    heat_on=s["heat_on"],
+                )
+                for s in data["slots"]
+            ],
+        )
+    except (KeyError, TypeError, ValueError):
         return None
 
 

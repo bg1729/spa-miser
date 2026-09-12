@@ -77,6 +77,15 @@ CONF_ENABLED = "enabled"
 CONF_AWAY_MODE = "away_mode"
 DEFAULT_ENABLED = False
 DEFAULT_AWAY_MODE = False
+# Options-only (like CONF_ENABLED/CONF_AWAY_MODE) - no config-flow step, so
+# raising this from the default requires no migration for existing entries.
+# Above this price, the spa falls back to the Low Range/min_away_temp
+# safety floor instead of paying to defend the normal comfort window (see
+# coordinator._compute_active_range). Defaults comfortably above any
+# realistic real-world Agile price, so it's a no-op until deliberately
+# lowered - stored in GBP/kWh like every other price value in the codebase.
+CONF_MAX_PRICE = "max_price"
+DEFAULT_MAX_PRICE = 2.00
 # Opt-in only, via button.spa_miser_estimate_initial_model - see open_meteo.py.
 # Off by default so nothing external is contacted without the user
 # explicitly choosing to (the button's name/description is the "prompt").

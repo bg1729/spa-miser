@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant
 from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
@@ -23,6 +24,7 @@ from .const import (
     CONF_MANUAL_OVERRIDE_MINUTES,
     CONF_MANUAL_STANDARD_RATE,
     CONF_MAX_COMFORT_TEMP,
+    CONF_MAX_PRICE,
     CONF_MIN_AWAY_TEMP,
     CONF_MIN_COMFORT_TEMP,
     CONF_OCTOPUS_CURRENT_DAY_RATES_ENTITY,
@@ -44,8 +46,10 @@ from .const import (
     DEFAULT_MANUAL_OVERRIDE_MINUTES,
     DEFAULT_MANUAL_STANDARD_RATE,
     DEFAULT_MAX_COMFORT_TEMP,
+    DEFAULT_MAX_PRICE,
     DEFAULT_MIN_AWAY_TEMP,
     DEFAULT_MIN_COMFORT_TEMP,
+    DOMAIN,
     HEATING_STATE_ACTIVE_VALUES,
     MODEL_FIT_LOOKBACK_DAYS,
     MODEL_REFIT_INTERVAL_HOURS,
@@ -60,7 +64,7 @@ from .price_sources.manual import ManualPriceSource
 from .price_sources.octopus_agile import OctopusAgilePriceSource
 from .price_sources.octopus_agile_public import OctopusAgilePublicPriceSource
 from .spa_control import UNAVAILABLE_STATES, SpaControl
-from .strategy import DailyStrategy, compute_strategy
+from .strategy import DailyStrategy, compute_strategy, deserialize_strategy, serialize_strategy
 from .thermal_model import ThermalModelParams
 from .thermal_model import fit as fit_model
 from .thermal_model import predict_trajectory
@@ -70,6 +74,10 @@ from .thermal_model import predict_trajectory
 # differences between ticks, while still reliably catching "tomorrow's
 # Agile rates just published" (which extends coverage by ~24h).
 STRATEGY_RECOMPUTE_COVERAGE_MARGIN_HOURS = 1
+# Bump if the persisted shape (see strategy.serialize_strategy) ever
+# changes incompatibly - old stores are simply discarded, not migrated,
+# since a fresh strategy just gets recomputed on the next cycle anyway.
+STRATEGY_STORAGE_VERSION = 1
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -88,6 +96,14 @@ class SpaMiserData:
     max_comfort_c: float = DEFAULT_MAX_COMFORT_TEMP
     min_comfort_c: float = DEFAULT_MIN_COMFORT_TEMP
     min_away_c: float = DEFAULT_MIN_AWAY_TEMP
+    max_price: float = DEFAULT_MAX_PRICE
+    # Which hardware preset is actually in force right now, and why - see
+    # coordinator._compute_active_range. Populated every tick regardless
+    # of whether control is actually being applied (disabled/paused/
+    # unavailable), so sensor.spa_miser_active_range stays accurate even
+    # then.
+    active_preset: str = PRESET_HIGH_RANGE
+    range_reason: str = "normal"
     # Independent of the thermal model/decision (which both need ~24h of
     # history before producing anything) - lets a price source be verified
     # as actually wired up and returning real data immediately.
@@ -136,6 +152,12 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
         self._last_fit: datetime | None = None
         self._strategy: DailyStrategy | None = None
         self._heater_power_kw: float = history.DEFAULT_HEATER_POWER_KW
+        # Persists the committed plan across restarts - see async_setup
+        # (restore) and _async_recompute_strategy (save). Keyed per entry
+        # so multiple spa-miser instances wouldn't collide.
+        self._strategy_store: Store = Store(
+            hass, STRATEGY_STORAGE_VERSION, f"{DOMAIN}_{entry.entry_id}_daily_strategy"
+        )
 
         self._enabled: bool = entry.options.get(CONF_ENABLED, DEFAULT_ENABLED)
         self._away_mode: bool = entry.options.get(CONF_AWAY_MODE, DEFAULT_AWAY_MODE)
@@ -159,12 +181,14 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
             CONF_MIN_AWAY_TEMP,
             entry.data.get(CONF_MIN_AWAY_TEMP, DEFAULT_MIN_AWAY_TEMP),
         )
+        # Options-only, no config-flow step - see CONF_MAX_PRICE in const.py.
+        self._max_price: float = entry.options.get(CONF_MAX_PRICE, DEFAULT_MAX_PRICE)
 
         self._energy_day: date | None = None
         self._energy_baseline_kwh: float | None = None
         self._unsub_input_ready = None
 
-    def async_setup(self) -> None:
+    async def async_setup(self) -> None:
         self.spa_control.async_setup()
         input_entities = [
             entity_id
@@ -179,6 +203,24 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
         self._unsub_input_ready = async_track_state_change_event(
             self.hass, input_entities, self._handle_input_ready
         )
+        await self._async_load_persisted_strategy()
+
+    async def _async_load_persisted_strategy(self) -> None:
+        """Restore the committed plan across a restart, before the first
+        refresh runs - see strategy.serialize_strategy/deserialize_strategy
+        and _async_recompute_strategy (which keeps the store up to date).
+        """
+        data = await self._strategy_store.async_load()
+        if data is None:
+            return
+        strategy = deserialize_strategy(data)
+        if strategy is not None:
+            self._strategy = strategy
+            _LOGGER.info(
+                "Restored persisted daily strategy (%d slots, computed at %s)",
+                len(strategy.slots),
+                strategy.computed_at,
+            )
 
     def async_unload(self) -> None:
         self.spa_control.async_unload()
@@ -245,6 +287,10 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
         return self._min_away_c
 
     @property
+    def max_price(self) -> float:
+        return self._max_price
+
+    @property
     def strategy(self) -> DailyStrategy | None:
         """The current committed daily plan, if one has been computed yet.
 
@@ -278,6 +324,11 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
     async def async_set_min_away_c(self, value: float) -> None:
         self._min_away_c = value
         self._persist_option(CONF_MIN_AWAY_TEMP, value)
+        await self.async_request_refresh()
+
+    async def async_set_max_price(self, value: float) -> None:
+        self._max_price = value
+        self._persist_option(CONF_MAX_PRICE, value)
         await self.async_request_refresh()
 
     async def async_trigger_initial_estimate(self) -> None:
@@ -331,6 +382,8 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
         current_temp = self._read_state_float(self.entry.data[CONF_WATER_TEMP_SENSOR])
         price_slots = await self.price_source.async_get_forecast(self.hass)
         forecast = await self._async_get_weather_forecast()
+        current_price = self._read_current_price(price_slots)
+        active_preset, range_reason = self._compute_active_range(current_price)
 
         floor = self._min_away_c if self._away_mode else self._min_comfort_c
         ceiling = self._max_comfort_c
@@ -340,13 +393,19 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
 
         decision = self._decide(current_temp, floor, ceiling, forecast, price_slots)
 
+        # Range/safety-floor enforcement runs whenever spa-miser is allowed
+        # to act at all - deliberately not gated on `decision is not None`,
+        # so away mode / the price cap still hold a safe floor even before
+        # the thermal model has ever produced a decision (fresh install,
+        # stale/unfittable model). Only the comfort ceiling-vs-floor choice
+        # within High Range actually needs a real decision - see
+        # _async_apply_control.
         if (
             self._enabled
-            and decision is not None
             and self.spa_control.is_available
             and not self.spa_control.is_manually_overridden
         ):
-            await self._async_apply_decision(decision)
+            await self._async_apply_control(decision, active_preset)
 
         model_temp = self._predict_model_temperature(current_temp, forecast)
         predicted_kwh = self._estimate_predicted_kwh_today(forecast)
@@ -370,7 +429,10 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
             max_comfort_c=ceiling,
             min_comfort_c=self._min_comfort_c,
             min_away_c=self._min_away_c,
-            current_price=self._read_current_price(price_slots),
+            max_price=self._max_price,
+            active_preset=active_preset,
+            range_reason=range_reason,
+            current_price=current_price,
             price_slots_count=len(price_slots),
             price_slots=price_slots,
             control_status=self._compute_control_status(decision),
@@ -396,23 +458,50 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
 
     # --- spa actuation ----------------------------------------------------
 
-    async def _async_apply_decision(self, decision: Decision) -> None:
-        target_preset = PRESET_LOW_RANGE if self._away_mode else PRESET_HIGH_RANGE
-        target_temp = self._min_away_c if self._away_mode else self._max_comfort_c
+    def _compute_active_range(self, current_price: float | None) -> tuple[str, str]:
+        """Which hardware preset should be in force right now, and why.
 
-        if self.spa_control.preset_mode != target_preset:
-            await self.spa_control.async_set_preset(target_preset)
+        Deliberately stateless and independent of the DP/decision_engine -
+        the optimizer keeps computing a High Range setpoint exactly as
+        before; this is a simple override applied only at actuation time,
+        so a sustained expensive spell lets comfort lapse without ever
+        leaving the spa's onboard thermostat undefended. Away mode takes
+        precedence over the price cap for display purposes when both
+        apply - it's a deliberate, already-visible user choice, whereas
+        the price cap firing is the more surprising case worth calling out.
+        """
+        if self._away_mode:
+            return PRESET_LOW_RANGE, "away_mode"
+        if current_price is not None and current_price > self._max_price:
+            return PRESET_LOW_RANGE, "price_cap"
+        return PRESET_HIGH_RANGE, "normal"
+
+    async def _async_apply_control(
+        self, decision: Decision | None, active_preset: str
+    ) -> None:
+        if active_preset == PRESET_LOW_RANGE:
+            target_temp = self._min_away_c
+        else:
+            heat_to_ceiling = decision is not None and decision.heat_recommended
+            target_temp = self._max_comfort_c if heat_to_ceiling else self._min_comfort_c
+
+        if self.spa_control.preset_mode != active_preset:
+            await self.spa_control.async_set_preset(active_preset)
         current_target = self._read_state_float(
             self.entry.data[CONF_CLIMATE_ENTITY], attribute="temperature"
         )
         if current_target is None or abs(current_target - target_temp) > 0.25:
             await self.spa_control.async_set_target_temperature(target_temp)
 
-        heat_on = self.spa_control.hvac_mode == "heat"
-        if decision.heat_recommended and not heat_on:
+        # hvac_mode is always "heat", never "off" - the spa's own onboard
+        # thermostat then keeps actively defending whichever target above
+        # is currently in force (comfort ceiling/floor, or the away/price-
+        # cap safety value) even if HA or spa-miser itself stops
+        # responding. Previously this toggled hvac_mode off during normal
+        # coast periods, which left the heater with no active target at
+        # all if HA died mid-coast.
+        if self.spa_control.hvac_mode != "heat":
             await self.spa_control.async_set_heat_enabled(True)
-        elif not decision.heat_recommended and heat_on:
-            await self.spa_control.async_set_heat_enabled(False)
 
     # --- daily strategy --------------------------------------------------
 
@@ -501,6 +590,7 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
             _LOGGER.warning("Could not compute a daily strategy (insufficient forecast data)")
             return
         self._strategy = strategy
+        await self._strategy_store.async_save(serialize_strategy(strategy))
         _LOGGER.info(
             "Computed new daily strategy: %d slots, %d heat-on, heater_power_kw=%.2f",
             len(strategy.slots),
