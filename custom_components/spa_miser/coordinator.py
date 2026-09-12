@@ -103,6 +103,12 @@ class SpaMiserData:
     # against those entities' own states elsewhere in HA.
     heating_state: str | None = None
     outdoor_temperature_c: float | None = None
+    # Answers "why isn't it doing anything right now" without digging
+    # through logs - e.g. a manual-override pause (see SpaControl) is
+    # invisible from every other entity, since it deliberately looks
+    # identical to "nothing to do right now".
+    control_status: str = "disabled"
+    control_override_until: datetime | None = None
 
 
 class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
@@ -307,7 +313,26 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
             current_price=self._read_current_price(price_slots),
             price_slots_count=len(price_slots),
             price_slots=price_slots,
+            control_status=self._compute_control_status(decision),
+            control_override_until=self.spa_control.override_until,
         )
+
+    def _compute_control_status(self, decision: Decision | None) -> str:
+        """Mirrors the gating in _async_update_data's apply-decision check,
+        so this always explains exactly why that check did or didn't fire -
+        in particular, a manual-override pause is otherwise invisible from
+        every other entity, since it deliberately looks identical to
+        "nothing to do right now".
+        """
+        if not self._enabled:
+            return "disabled"
+        if self.spa_control.is_manually_overridden:
+            return "paused_manual_override"
+        if not self.spa_control.is_available:
+            return "unavailable"
+        if decision is None:
+            return "no_decision"
+        return "active"
 
     # --- spa actuation ----------------------------------------------------
 

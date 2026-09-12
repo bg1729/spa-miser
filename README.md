@@ -136,6 +136,7 @@ device page can.
 | `sensor.spa_miser_actual_kwh_today` | Measured energy used today |
 | `sensor.spa_miser_cost_saved_today` | Estimated saving vs. a naive always-on baseline |
 | `sensor.spa_miser_decision_reason` | Why the current recommendation was made |
+| `sensor.spa_miser_control_status` | Whether spa-miser can actually act right now: `Disabled`, `Paused (manual override)`, `Unavailable`, `Not ready yet`, or `Active` - in particular, a manual-override pause (see `manual_override_minutes`) is otherwise invisible from every other entity, since it looks identical to "nothing to do right now". `override_until` attribute has the resume time when paused. |
 | `sensor.spa_miser_current_price` | Current price (p/kWh) from whichever price source is configured - populates immediately, doesn't need the model |
 | `sensor.spa_miser_daily_strategy` | The committed 24h plan: state is when it was last computed, `slots` attribute has the planned temperature/price/heat-on per slot (see [Example dashboard](#example-dashboard)) |
 

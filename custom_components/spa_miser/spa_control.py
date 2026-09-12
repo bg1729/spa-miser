@@ -59,6 +59,11 @@ class SpaControl:
         return dt_util.utcnow() < self._override_until
 
     @property
+    def override_until(self) -> datetime | None:
+        """When the current manual-override pause ends, if one is active."""
+        return self._override_until if self.is_manually_overridden else None
+
+    @property
     def current_temperature(self) -> float | None:
         state = self._hass.states.get(self._entity_id)
         if state is None:

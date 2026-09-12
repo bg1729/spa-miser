@@ -141,3 +141,63 @@ async def test_enabled_coordinator_drives_climate_entity(
     # SpaControl tags its own calls with its own Context; they must not be
     # mistaken for a manual override of the entity it just changed.
     assert coordinator.spa_control.is_manually_overridden is False
+    assert coordinator.data.control_status == "active"
+
+    # A state change from outside spa-miser's own service calls (a
+    # different Context - e.g. someone using the thermostat card directly)
+    # should be detected as a manual override, exactly the situation
+    # sensor.spa_miser_control_status exists to surface: everything else
+    # about this cycle looks identical to "nothing to do right now".
+    hass.states.async_set(
+        CLIMATE_ENTITY, "heat", {**hass.states.get(CLIMATE_ENTITY).attributes, "temperature": 38.0}
+    )
+    # The state-changed event (and SpaControl's own listener that sets the
+    # override) must be fully processed before refreshing - otherwise the
+    # coordinator's update cycle can run ahead of the override being set.
+    await hass.async_block_till_done()
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    assert coordinator.spa_control.is_manually_overridden is True
+    assert coordinator.data.control_status == "paused_manual_override"
+    assert coordinator.data.control_override_until is not None
+
+
+async def test_control_status_is_disabled_when_switch_is_off(
+    recorder_mock, hass: HomeAssistant, enable_custom_integrations
+):
+    hass.states.async_set(
+        CLIMATE_ENTITY,
+        "off",
+        {"current_temperature": 37.0, "temperature": 36.0, "preset_mode": "Low Range"},
+    )
+    hass.states.async_set("sensor.balboa_spa_current_temperature", "37.0")
+    hass.states.async_set("sensor.spa_heater_power", "0")
+    hass.states.async_set("sensor.spa_heater_energy", "50.0")
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={
+            CONF_CLIMATE_ENTITY: CLIMATE_ENTITY,
+            CONF_WATER_TEMP_SENSOR: "sensor.balboa_spa_current_temperature",
+            CONF_HEATING_STATE_ENTITY: "sensor.balboa_spa_heating_state",
+            CONF_WEATHER_ENTITY: "weather.home",
+            CONF_POWER_ENTITY: "sensor.spa_heater_power",
+            CONF_ENERGY_ENTITY: "sensor.spa_heater_energy",
+            CONF_MAX_COMFORT_TEMP: 39.5,
+            CONF_MIN_COMFORT_TEMP: 36.0,
+            CONF_MIN_AWAY_TEMP: 25.0,
+            CONF_MANUAL_OVERRIDE_MINUTES: 120,
+            CONF_PRICE_SOURCE: PRICE_SOURCE_MANUAL,
+            CONF_MANUAL_CHEAP_HOURS: list(range(24)),
+            CONF_MANUAL_CHEAP_RATE: 0.10,
+            CONF_MANUAL_STANDARD_RATE: 0.10,
+        },
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    coordinator = hass.data[DOMAIN][entry.entry_id]
+    assert coordinator.data.enabled is False
+    assert coordinator.data.control_status == "disabled"

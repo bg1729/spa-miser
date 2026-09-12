@@ -64,6 +64,7 @@
       "current_price": { "name": "Current price" },
       "price_slots_available": { "name": "Price slots available" },
       "decision_reason": { "name": "Decision reason" },
+      "control_status": { "name": "Control status" },
       "loss_coefficient": { "name": "Fitted loss coefficient" },
       "wind_coefficient": { "name": "Fitted wind coefficient" },
       "thermal_mass": { "name": "Estimated thermal mass" },

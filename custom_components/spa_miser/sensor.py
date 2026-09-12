@@ -175,7 +175,10 @@ SENSOR_DESCRIPTIONS: tuple[SpaMiserSensorDescription, ...] = (
         translation_key="model_fit_quality",
         entity_category=EntityCategory.DIAGNOSTIC,
         suggested_display_precision=3,
-        value_fn=lambda d: d.model.r_squared if d.model else None,
+        # Rounded here, not just via suggested_display_precision: that's
+        # only a rendering hint some card types (plain entities-card rows
+        # included) don't apply, leaving the raw unrounded float displayed.
+        value_fn=lambda d: round(d.model.r_squared, 3) if d.model else None,
     ),
     # Not used by the model itself - a sanity check for the fit as a whole.
     # An implied volume wildly off from the tub's actual rated capacity
@@ -222,6 +225,7 @@ async def async_setup_entry(
             ConfiguredSourcesSensor(coordinator),
             DailyStrategySensor(coordinator),
             PriceForecastSensor(coordinator),
+            ControlStatusSensor(coordinator),
         ]
     )
 
@@ -356,3 +360,36 @@ class PriceForecastSensor(SpaMiserEntity, SensorEntity):
                 for slot in self.coordinator.data.price_slots
             ]
         }
+
+
+class ControlStatusSensor(SpaMiserEntity, SensorEntity):
+    """Explains, in plain language, whether spa-miser is actually able to
+    act right now. Most importantly: a manual-override pause (see
+    spa_control.py) is otherwise invisible from every other entity, since
+    it deliberately looks identical to "nothing to do right now" - this is
+    the one place that distinction is surfaced at all.
+    """
+
+    _attr_translation_key = "control_status"
+    _attr_icon = "mdi:robot-outline"
+
+    _LABELS = {
+        "disabled": "Disabled",
+        "paused_manual_override": "Paused (manual override)",
+        "unavailable": "Unavailable",
+        "no_decision": "Not ready yet",
+        "active": "Active",
+    }
+
+    def __init__(self, coordinator: SpaMiserCoordinator) -> None:
+        super().__init__(coordinator, "control_status")
+
+    @property
+    def native_value(self) -> str:
+        status = self.coordinator.data.control_status
+        return self._LABELS.get(status, status)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, object]:
+        override_until = self.coordinator.data.control_override_until
+        return {"override_until": override_until.isoformat() if override_until else None}
