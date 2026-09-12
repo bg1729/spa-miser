@@ -12,7 +12,10 @@ via MQTT + Home Assistant discovery) and:
   model.
 - **Holds temperature in a 3-tier window**: *max comfort* (ceiling), *min
   comfort* (day-to-day floor, always enforced), and *min/away* (a deeper
-  setback floor for extended absences).
+  setback floor for extended absences). These are spa-miser's own concepts,
+  not the tub's - see [Terminology](#terminology-spa-miser-concepts-vs-the-tubs-own) if
+  you're coming from the gateway project's own vocabulary (`High Range` /
+  `Low Range`, `setTemp`, etc.).
 - **Minimises cost** by computing a committed 24h heating plan once new
   price data arrives (e.g. when Octopus Agile publishes tomorrow's rates),
   choosing when to heat to stay within the comfort window at the lowest
@@ -54,6 +57,29 @@ hand.
     Agile pricing even while billed on a different tariff.
   - A manual fixed-cheap-hours fallback if you don't have a dynamic tariff at
     all yet.
+
+## Terminology: spa-miser concepts vs. the tub's own
+
+Two different vocabularies are in play, and they don't map 1:1 - this is a
+common source of confusion (including for the author, mid-project):
+
+| spa-miser concept | The tub's own concept | Relationship |
+|---|---|---|
+| `max_comfort_temp` (the ceiling) | `High Range` preset | Written to the spa **as** the High Range setpoint whenever away mode is off. Bounded 26-40°C - the real hardware's own valid range for High Range (see below). |
+| `min_away_temp` (the away setback) | `Low Range` preset | Written to the spa **as** the Low Range setpoint whenever away mode is on. Bounded 10-26°C - the real hardware's own valid range for Low Range. |
+| `min_comfort_temp` (the day-to-day floor) | *(nothing - no equivalent)* | Purely an internal decision threshold ("start heating before this is breached") - **never** written to the spa as a setpoint. The tub has no third range to hold it at. |
+| `away_mode` (a switch) | *(nothing - no equivalent)* | spa-miser's own idea; toggling it is what decides *which* of the above two presets/setpoints gets used. |
+
+The `High Range` / `Low Range` names and their 26-40°C / 10-26°C bands come
+from the Balboa protocol itself (verified directly against the gateway
+firmware's own `spaProtocolActiveSetpointBand()`) - they're just two halves
+of one continuous setpoint dial, with **no inherent meaning** ("high" isn't
+"comfort", "low" isn't "away"). Attaching that meaning - ceiling ↔ High
+Range, away setback ↔ Low Range - is entirely spa-miser's own design
+choice. `min_comfort_temp` has no equivalent on the tub's side at all: the
+water can still coast well below it in either range (the range only
+constrains what *setpoint* you can dial in, not how far the water can
+actually drift), which is exactly what `min_comfort_temp` watches for.
 
 ## Setup
 
