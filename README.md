@@ -348,10 +348,15 @@ variables:
     : Date.now(); const m = Math.round((end - Date.now()) / 60000);
     return (m >= 0 ? '+' : '') + m + 'min'; })()
 # grid_options belongs on this outer card - the section's grid layout
-# doesn't look inside `card:` for it, which is why an earlier version of
-# this (with grid_options nested under `card:`) didn't fill the full width.
+# doesn't look inside `card:` for it. columns: "full" (not a number) is
+# also deliberate: a section's own column_span scales its *total* internal
+# grid units too (12 * column_span), so a fixed numeric columns value ends
+# up as a smaller fraction of a wider section - "full" is a dedicated
+# value (renders as grid-column: 1 / -1) that bypasses that scaling
+# entirely and always spans the whole section regardless of its
+# column_span.
 grid_options:
-  columns: 24
+  columns: full
   rows: 24
 card:
   type: custom:apexcharts-card
@@ -411,7 +416,7 @@ card:
     - entity: sensor.spa_miser_daily_strategy
       name: Expected temperature
       yaxis_id: temp
-      color: "#17becf"
+      color: "#9467bd"
       curve: stepline
       stroke_width: 1.5
       extend_to: false
