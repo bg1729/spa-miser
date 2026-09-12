@@ -201,8 +201,11 @@ something you'd want cluttering a glance at today's status.
 ### Plan vs. actual, with price overlaid (apexcharts-card)
 
 The cards above are all HA has built in, and can't render *future* data -
-`history-graph`/`statistics-graph` only show recorded history. To actually
-see the plan (not just today's numbers), install
+`history-graph`/`statistics-graph` only show recorded history, because a
+sensor's recorder history is only ever written as time actually passes -
+there's no way for it to hold tomorrow's rows today, even for a value (like
+the Agile price) that's already fully known in advance. To actually see the
+plan - and the already-known future price alongside it - install
 [apexcharts-card](https://github.com/RomRider/apexcharts-card) via HACS and
 use its `data_generator` option to plot `sensor.spa_miser_daily_strategy`'s
 `slots` attribute as a forecast series, alongside the real past data from
@@ -212,10 +215,18 @@ actual) is drawn as a low-opacity band on a third, hidden axis so it's
 visible without dominating the chart - this is what actually shows *when*
 the heater ran (or will run) against *when* electricity was cheap.
 
+Note that "forecast price" isn't a decision spa-miser makes (unlike planned
+temperature/heating) - it's the same tariff data the strategy used, just
+plotted ahead of "now" since the `current_price` sensor's own history can't
+be.
+
 ```yaml
 type: custom:apexcharts-card
 header:
   title: Spa heating plan vs. actual
+apex_config:
+  chart:
+    height: 450
 graph_span: 48h
 span:
   start: day
@@ -258,7 +269,7 @@ series:
     yaxis_id: price
     color: "#ff7f0e"
   - entity: sensor.spa_miser_daily_strategy
-    name: Planned price
+    name: Forecast price
     yaxis_id: price
     color: "#ff7f0e"
     opacity: 0.5
