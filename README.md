@@ -264,8 +264,7 @@ series:
   - entity: sensor.spa_miser_daily_strategy
     name: Planned temperature
     yaxis_id: temp
-    color: "#1f77b4"
-    opacity: 0.5
+    color: "#17becf"
     curve: stepline
     data_generator: |
       return entity.attributes.slots.map((slot) => [
@@ -278,8 +277,7 @@ series:
   - entity: sensor.spa_miser_price_slots_available
     name: Forecast price
     yaxis_id: price
-    color: "#ff7f0e"
-    opacity: 0.5
+    color: "#9467bd"
     curve: stepline
     data_generator: |
       return entity.attributes.slots.map((slot) => [
@@ -296,8 +294,8 @@ series:
     name: Planned heating
     yaxis_id: heat
     type: area
-    color: "#2ca02c"
-    opacity: 0.15
+    color: "#bcbd22"
+    opacity: 0.2
     curve: stepline
     data_generator: |
       return entity.attributes.slots.map((slot) => [
