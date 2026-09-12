@@ -28,10 +28,18 @@ class ManualPriceSource(PriceSource):
     async def async_get_forecast(self, hass: HomeAssistant) -> list[PriceSlot]:
         now = dt_util.utcnow()
         local_now = dt_util.as_local(now).replace(minute=0, second=0, microsecond=0)
+        # From the start of today, not from "now": the rate for any given
+        # hour is fully determined by cheap_hours, so today's already-elapsed
+        # hours are just as known as the future ones - callers (charting in
+        # particular) shouldn't have to reconstruct them from recorder
+        # history. Decision-making code separately filters to s.end > now
+        # wherever only the remaining window matters.
+        local_start = local_now.replace(hour=0)
+        hours_elapsed_today = int((local_now - local_start).total_seconds() // 3600)
 
         slots: list[PriceSlot] = []
-        for i in range(DECISION_LOOKAHEAD_HOURS):
-            start_local = local_now + timedelta(hours=i)
+        for i in range(hours_elapsed_today + DECISION_LOOKAHEAD_HOURS):
+            start_local = local_start + timedelta(hours=i)
             end_local = start_local + timedelta(hours=1)
             price = (
                 self._cheap_rate

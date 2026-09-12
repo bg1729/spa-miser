@@ -36,7 +36,10 @@ async def test_octopus_agile_parses_and_concatenates_rates(hass: HomeAssistant) 
                     "value_inc_vat": 15.5,
                 },
                 {
-                    # already in the past - should be filtered out
+                    # Already elapsed - kept, not filtered: Agile rates are
+                    # fixed once published, so an already-elapsed slot is
+                    # just as much "the price" as a future one (e.g. for
+                    # charting today's full curve).
                     "start": (now - timedelta(hours=2)).isoformat(),
                     "end": (now - timedelta(hours=1, minutes=30)).isoformat(),
                     "value_inc_vat": 99.0,
@@ -61,10 +64,11 @@ async def test_octopus_agile_parses_and_concatenates_rates(hass: HomeAssistant) 
     source = OctopusAgilePriceSource(current_entity)
     slots = await source.async_get_forecast(hass)
 
-    assert len(slots) == 2
-    assert slots[0].price == 0.155  # pence -> pounds
-    assert slots[1].price == -0.032
-    assert slots[0].start < slots[1].start
+    assert len(slots) == 3
+    assert slots[0].price == 0.99  # the elapsed slot, still present
+    assert slots[1].price == 0.155  # pence -> pounds
+    assert slots[2].price == -0.032
+    assert slots[0].start < slots[1].start < slots[2].start
 
 
 async def test_octopus_agile_missing_entities_returns_empty(hass: HomeAssistant) -> None:
@@ -85,3 +89,17 @@ async def test_manual_price_source_marks_configured_hours_cheap(hass: HomeAssist
         local_hour = dt_util.as_local(slot.start).hour
         expected = 0.10 if local_hour in (2, 3) else 0.30
         assert slot.price == expected
+
+
+async def test_manual_price_source_includes_todays_elapsed_hours(hass: HomeAssistant) -> None:
+    # The rate for any hour is fully determined by cheap_hours, so today's
+    # already-elapsed hours are just as known as the future ones - charting
+    # today's full curve shouldn't have to fall back to recorder history.
+    source = ManualPriceSource(cheap_hours=[2, 3], cheap_rate=0.10, standard_rate=0.30)
+
+    slots = await source.async_get_forecast(hass)
+
+    local_midnight = dt_util.as_local(dt_util.utcnow()).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    assert dt_util.as_local(slots[0].start) == local_midnight

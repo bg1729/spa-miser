@@ -28,6 +28,10 @@ RATES_URL_TEMPLATE = (
 )
 PENCE_PER_POUND = 100.0
 FORECAST_HOURS = 48
+# The default page size (100) can be smaller than a full day-plus-lookahead
+# span of half-hour slots once today's already-elapsed slots are included
+# too; request enough that pagination never silently truncates the result.
+RATES_PAGE_SIZE = 1500
 # How long to trust a discovered "current Agile product code" before
 # re-checking - Octopus rotates the active Agile product every few months,
 # not every request.
@@ -94,9 +98,17 @@ class OctopusAgilePublicPriceSource(PriceSource):
 
         now = dt_util.utcnow()
         url = RATES_URL_TEMPLATE.format(product_code=product_code, region=self._region)
+        # From the start of today, not from "now": Agile rates are fixed once
+        # published (never revised), so today's already-elapsed slots are
+        # just as much "the price" as the future ones - callers (charting in
+        # particular) shouldn't have to reconstruct them from recorder
+        # history. Decision-making code separately filters to s.end > now
+        # wherever only the remaining window matters.
+        period_from = dt_util.as_utc(dt_util.start_of_local_day(now))
         params = {
-            "period_from": now.isoformat(),
+            "period_from": period_from.isoformat(),
             "period_to": (now + timedelta(hours=FORECAST_HOURS)).isoformat(),
+            "page_size": RATES_PAGE_SIZE,
         }
 
         session = async_get_clientsession(hass)

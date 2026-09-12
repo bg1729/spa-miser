@@ -66,8 +66,12 @@ class OctopusAgilePriceSource(PriceSource):
         slots = _parse_rates(hass, self._current_day_entity_id)
         slots += _parse_rates(hass, self._next_day_entity_id)
 
-        now = dt_util.utcnow()
-        slots = [s for s in slots if s.end > now]
+        # Deliberately not filtered to s.end > now: Agile rates are fixed
+        # once published (never revised), so today's already-elapsed slots
+        # are just as much "the price" as the future ones - callers
+        # (charting in particular) shouldn't have to reconstruct them from
+        # recorder history. Decision-making code separately filters to
+        # s.end > now wherever only the remaining window matters.
         slots.sort(key=lambda s: s.start)
 
         if not slots:

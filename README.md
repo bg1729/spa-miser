@@ -119,7 +119,7 @@ device page can.
 |---|---|
 | `sensor.spa_miser_water_temperature` / `heating_state` / `outdoor_temperature` | Raw current readings of the configured input entities |
 | `sensor.spa_miser_configured_sources` | Which entity is wired to each role (state = count configured; attributes = the full mapping) |
-| `sensor.spa_miser_price_slots_available` | State = how many forecast price slots the price source returned; `slots` attribute has the full raw curve (start/end/price), independent of whether a strategy has been computed from it |
+| `sensor.spa_miser_price_slots_available` | State = how many price slots the price source returned; `slots` attribute has the whole day's curve (past and future, start/end/price) - independent of whether a strategy has been computed from it |
 | `sensor.spa_miser_loss_coefficient` / `wind_coefficient` / `thermal_mass` / `model_fit_quality` | Fitted thermal model internals - see [Thermal model diagnostics](#example-dashboard) |
 | `sensor.spa_miser_estimated_water_volume` | Implied tub volume from the fitted thermal mass - a sanity check, not a model input |
 
@@ -203,31 +203,30 @@ something you'd want cluttering a glance at today's status.
 The cards above are all HA has built in, and can't render *future* data -
 `history-graph`/`statistics-graph` only show recorded history, because a
 sensor's recorder history is only ever written as time actually passes -
-there's no way for it to hold tomorrow's rows today, even for a value (like
-the Agile price) that's already fully known in advance. To actually see the
-plan - and the already-known future price alongside it - install
+there's no way for it to hold tomorrow's rows today. Price is the one
+exception where that limitation doesn't have to matter: an Agile rate is
+fixed the moment it's published and never revised, so there's no "actual
+vs. forecast" distinction to draw for it in the first place - unlike
+temperature or heating state, which really do depend on what happens (or
+the strategy's decisions, which really are a plan). All three price sources
+now return the *whole* day's rates, including hours that have already
+elapsed - so `sensor.spa_miser_price_slots_available`'s `slots` attribute
+alone is the complete price curve, past and future, straight from
+whichever price source is configured. Install
 [apexcharts-card](https://github.com/RomRider/apexcharts-card) via HACS and
-use its `data_generator` option to plot two different sensors' future-facing
-attributes as forecast series: `sensor.spa_miser_daily_strategy`'s `slots`
-(planned temperature + heat on/off - spa-miser's own decisions) and
-`sensor.spa_miser_price_slots_available`'s `slots` (the raw price forecast,
-straight from the price source). These are deliberately separate: the price
-curve is available the moment the price source returns it, while the
-strategy needs a successful thermal-model fit first - keeping them apart
-means the price forecast still shows even before/without a strategy. Both
-sit alongside the real past data from `sensor.spa_miser_water_temperature` /
-`current_price` / `heating_state`. Temperature and price get their own
-y-axes; heating on/off (both planned and actual) is drawn as a low-opacity,
-full-height rectangle on a third, hidden 0-1 axis - the y-position isn't
-meaningful (on/off has no magnitude), only the x-extent (when it was/will be
-on) matters, so the fill deliberately spans the whole chart height rather
-than sitting at some arbitrary partial height. This is what actually shows
-*when* the heater ran (or will run) against *when* electricity was cheap.
-
-Note that "forecast price" isn't a decision spa-miser makes (unlike planned
-temperature/heating) - it's the same tariff data received from the price
-source, just plotted ahead of "now" since the `current_price` sensor's own
-history can't be.
+use its `data_generator` option to plot that as a single "Price" series,
+alongside `sensor.spa_miser_daily_strategy`'s `slots` for the genuinely
+forward-looking planned temperature/heating (spa-miser's own decisions,
+which *do* need a successful thermal-model fit first - so this one stays
+its own series, separate from the ever-present price curve), and the real
+past data from `sensor.spa_miser_water_temperature` / `heating_state`.
+Temperature and price get their own y-axes; heating on/off (both planned
+and actual) is drawn as a low-opacity, full-height rectangle on a third,
+hidden 0-1 axis - the y-position isn't meaningful (on/off has no
+magnitude), only the x-extent (when it was/will be on) matters, so the fill
+deliberately spans the whole chart height rather than sitting at some
+arbitrary partial height. This is what actually shows *when* the heater ran
+(or will run) against *when* electricity was cheap.
 
 ```yaml
 type: custom:apexcharts-card
@@ -274,15 +273,10 @@ series:
       return entity.attributes.slots.map((slot) => [
         new Date(slot.start).getTime(), slot.planned_temp_c
       ]);
-  - entity: sensor.spa_miser_current_price
-    name: Actual price
+  - entity: sensor.spa_miser_price_slots_available
+    name: Price
     yaxis_id: price
     color: "#ff7f0e"
-    stroke_width: 1.5
-  - entity: sensor.spa_miser_price_slots_available
-    name: Forecast price
-    yaxis_id: price
-    color: "#9467bd"
     curve: stepline
     stroke_width: 1.5
     data_generator: |

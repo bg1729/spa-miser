@@ -76,10 +76,13 @@ async def test_price_forecast_populates_without_a_strategy(
 
     state = hass.states.get("sensor.spa_miser_price_slots_available")
     assert state is not None
-    assert state.state == str(DECISION_LOOKAHEAD_HOURS)
 
     slots = state.attributes["slots"]
-    assert len(slots) == DECISION_LOOKAHEAD_HOURS
+    assert state.state == str(len(slots))
+    # At least the full lookahead window - the manual source also includes
+    # today's already-elapsed hours, so this can be more than
+    # DECISION_LOOKAHEAD_HOURS depending on what time of day the test runs.
+    assert len(slots) >= DECISION_LOOKAHEAD_HOURS
     assert slots[0]["price"] == 0.10
     assert "start" in slots[0] and "end" in slots[0]
     # Not a strategy - no planned_temp_c/heat_on, just the raw price data.
