@@ -23,6 +23,14 @@ _LOGGER = logging.getLogger(__name__)
 
 UNAVAILABLE_STATES = {"unavailable", "unknown", None}
 
+# MQTT entities typically rebuild their full state through several
+# incremental changes immediately after reconnecting (state, then
+# preset_mode, then temperature, each a separate event) - real-world bursts
+# like this complete within milliseconds, so a short grace window after
+# either edge of an availability transition comfortably absorbs the whole
+# thing without meaningfully delaying detection of an actual manual change.
+RECOVERY_GRACE_SECONDS = 5
+
 
 class SpaControl:
     """Wraps the spa climate entity with override detection and availability checks."""
@@ -35,6 +43,7 @@ class SpaControl:
         self._override_minutes = override_minutes
         self._own_context_ids: set[str] = set()
         self._override_until: datetime | None = None
+        self._recovering_until: datetime | None = None
         self._unsub = None
 
     def async_setup(self) -> None:
@@ -90,6 +99,21 @@ class SpaControl:
             return
         if event.context.id in self._own_context_ids:
             self._own_context_ids.discard(event.context.id)
+            return
+        now = dt_util.utcnow()
+        if old_state.state in UNAVAILABLE_STATES or new_state.state in UNAVAILABLE_STATES:
+            # Either edge of an availability transition (going offline, or
+            # reconnecting) is not a deliberate human action. Extend the
+            # grace window rather than just returning here, since the
+            # reconnection burst that follows needs covering too (see
+            # RECOVERY_GRACE_SECONDS).
+            self._recovering_until = now + timedelta(seconds=RECOVERY_GRACE_SECONDS)
+            return
+        if self._recovering_until is not None and now < self._recovering_until:
+            # Still inside the grace window from a recent availability
+            # transition - this is very likely one of the several
+            # incremental changes an MQTT entity's state gets rebuilt
+            # through immediately after reconnecting, not a real one.
             return
         if (
             new_state.state == old_state.state
