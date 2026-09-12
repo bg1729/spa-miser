@@ -94,9 +94,13 @@ def compute_strategy(
         return min(range(len(buckets)), key=lambda i: abs(buckets[i] - clamped))
 
     start_idx = snap(current_temp_c)
-    # dp[step]: bucket_idx -> cumulative cost. parent[step]: bucket_idx -> (prev_idx, heat_on).
-    dp: list[dict[int, float]] = [{start_idx: 0.0}]
-    parent: list[dict[int, tuple[int, bool]]] = []
+    top_idx = len(buckets) - 1
+    # State is (bucket_idx, grace_used) - see below for what grace_used
+    # means. dp[step]: state -> cumulative cost. parent[step]: state ->
+    # (prev_state, heat_on).
+    State = tuple[int, bool]
+    dp: list[dict[State, float]] = [{(start_idx, False): 0.0}]
+    parent: list[dict[State, tuple[State, bool]]] = []
     used_slots: list[PriceSlot] = []
 
     for slot in slots:
@@ -105,11 +109,12 @@ def compute_strategy(
             break
         dt_hours = (slot.end - slot.start).total_seconds() / 3600.0
         current_layer = dp[-1]
-        next_layer: dict[int, float] = {}
-        step_parent: dict[int, tuple[int, bool]] = {}
+        next_layer: dict[State, float] = {}
+        step_parent: dict[State, tuple[State, bool]] = {}
 
-        for idx, cost_so_far in current_layer.items():
+        for (idx, grace_used), cost_so_far in current_layer.items():
             temp = buckets[idx]
+            at_ceiling_start = idx == top_idx
             for heat_on in (False, True):
                 power_kw = heater_power_kw if heat_on else 0.0
                 trajectory = predict_trajectory(
@@ -121,18 +126,59 @@ def compute_strategy(
                     dt_hours=dt_hours,
                 )
                 new_temp = trajectory[0]
+                overshoots_ceiling = at_ceiling_start and new_temp > ceiling_c
+
+                # Real hardware doesn't keep drawing full power once at
+                # target - spa-miser only ever commands hvac_mode=heat with
+                # the setpoint at the ceiling, and the spa's own onboard
+                # thermostat (using its own real sensor) governs actual
+                # heating from there, cutting off well before a full slot's
+                # worth of power is drawn. Charging a full slot's cost for
+                # every subsequent heat_on=True slot once already at the
+                # ceiling treats that fictional continued draw as pure
+                # profit whenever price is negative, which biased the
+                # optimizer toward front-loading far more "heating" time
+                # than it actually needs.
+                #
+                # grace_used tracks whether this "ceiling excursion" has
+                # already had one dedicated heat_on=True slot since it was
+                # last below the ceiling. That one slot always gets full
+                # real cost, deliberately not reduced: the model's belief
+                # and the real water temperature can lag each other (fit
+                # error, sensor noise, thermal lag), so it's the real
+                # system's best chance to actually catch up to the model,
+                # not just the model reaching its own target on paper. Once
+                # the grace is spent, heat_on=True is dropped as an option
+                # entirely for this state rather than merely priced at 0:
+                # a genuinely free (0-cost) branch is still selectable, and
+                # the optimizer could "pay" one real slot's cost specifically
+                # to reach a state that then rides free - re-opening a
+                # smaller version of the same bug. Removing the option
+                # outright leaves only heat_on=False, which was already
+                # free anyway (power_kw=0), so there's nothing left to
+                # game. Coasting (heat_on=False) at the ceiling neither
+                # spends nor restores the grace - it has no bearing on
+                # whether a real heating event has actually happened.
+                if heat_on and overshoots_ceiling and grace_used:
+                    continue
+
+                new_grace_used = grace_used
+                if heat_on and overshoots_ceiling:
+                    new_grace_used = True  # this slot just spent the grace
+
                 penalty = (
                     (floor_c - new_temp) * FLOOR_VIOLATION_PENALTY_PER_DEGREE
                     if new_temp < floor_c
                     else 0.0
                 )
                 new_idx = snap(min(new_temp, ceiling_c))
-                total_cost = (
-                    cost_so_far + (slot.price * power_kw * dt_hours) + penalty
-                )
-                if new_idx not in next_layer or total_cost < next_layer[new_idx]:
-                    next_layer[new_idx] = total_cost
-                    step_parent[new_idx] = (idx, heat_on)
+                if new_idx != top_idx:
+                    new_grace_used = False  # dropped below - next excursion starts fresh
+                total_cost = cost_so_far + (slot.price * power_kw * dt_hours) + penalty
+                new_state = (new_idx, new_grace_used)
+                if new_state not in next_layer or total_cost < next_layer[new_state]:
+                    next_layer[new_state] = total_cost
+                    step_parent[new_state] = ((idx, grace_used), heat_on)
 
         dp.append(next_layer)
         parent.append(step_parent)
@@ -142,11 +188,11 @@ def compute_strategy(
         return None  # no forecast overlap at all - can't plan anything
 
     final_layer = dp[-1]
-    best_idx = min(final_layer, key=lambda i: final_layer[i])
+    best_state = min(final_layer, key=lambda s: final_layer[s])
     chosen_heat: list[bool] = [False] * len(used_slots)
-    idx = best_idx
+    state = best_state
     for step in range(len(used_slots) - 1, -1, -1):
-        idx, heat_on = parent[step][idx]
+        state, heat_on = parent[step][state]
         chosen_heat[step] = heat_on
 
     # Re-simulate forward with the chosen heat_on sequence to record the

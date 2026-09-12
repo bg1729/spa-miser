@@ -23,6 +23,24 @@ FLOOR_C = 25.0
 CEILING_C = 39.5
 HEATER_POWER_KW = 3.0
 
+# A real, well-insulated hot tub's loss is tiny next to its heater's power -
+# unlike MODEL above (a high-loss fixture that happens to work for the other
+# tests, but whose equilibrium temperature sits barely above CEILING_C,
+# creating a degenerate case where the model asymptotically creeps toward
+# but never cleanly crosses the ceiling in a single step). REALISTIC_MODEL
+# mirrors coefficients fitted against a real gateway this session
+# (loss_coefficient=0.0057 1/h, thermal_mass=1.63 kWh/C) and is used
+# specifically for tests about ceiling-crossing behaviour, where that
+# distinction matters.
+REALISTIC_MODEL = ThermalModelParams(
+    loss_coefficient=0.0057,
+    wind_coefficient=0.00023,
+    input_coefficient=0.95 / 1.63,
+    thermal_mass_kwh_per_c=1.63,
+    r_squared=0.57,
+    n_samples=200,
+)
+
 
 def _hourly_forecast(hours: int, ambient_c: float = 10.0) -> list[ForecastPoint]:
     return [
@@ -129,6 +147,45 @@ def test_total_cost_beats_a_naive_always_heat_baseline():
     naive_always_heat_cost = sum(s.price * HEATER_POWER_KW * 1.0 for s in slots)
 
     assert strategy_cost < naive_always_heat_cost
+
+
+def test_stops_heating_at_ceiling_instead_of_running_the_whole_negative_window():
+    # Real hardware doesn't keep drawing full power once at target - a real
+    # thermostat cuts off well before a full slot's worth of power is drawn.
+    # Before this was fixed, the optimizer treated continued "heating" at
+    # the ceiling as pure profit for as long as price stayed negative,
+    # front-loading far more heating time than it actually needed.
+    prices = [-0.20] * 20 + [0.30] * 4
+    strategy = compute_strategy(
+        now=NOW,
+        current_temp_c=CEILING_C - 0.3,
+        floor_c=FLOOR_C,
+        ceiling_c=CEILING_C,
+        forecast=_hourly_forecast(24),
+        price_slots=_hourly_slots(prices),
+        model=REALISTIC_MODEL,
+        heater_power_kw=HEATER_POWER_KW,
+    )
+
+    assert strategy is not None
+
+    negative_price_slots = strategy.slots[:20]
+    assert not all(s.heat_on for s in negative_price_slots), (
+        "heated through the entire negative-price window - "
+        "phantom continued-heating profit at the ceiling wasn't capped"
+    )
+
+    # One dedicated pair of full-cost slots is allowed each time the ceiling
+    # is (re-)reached - the real system's best chance to actually catch up
+    # to the model - but never more than that before a forced coast.
+    max_consecutive_heat_on = 0
+    current_run = 0
+    for slot in strategy.slots:
+        current_run = current_run + 1 if slot.heat_on else 0
+        max_consecutive_heat_on = max(max_consecutive_heat_on, current_run)
+    assert max_consecutive_heat_on <= 2, (
+        f"heated for {max_consecutive_heat_on} consecutive slots at the ceiling, expected at most 2"
+    )
 
 
 def test_no_forecast_overlap_returns_none():
