@@ -104,6 +104,21 @@ PRESET_HIGH_RANGE = "High Range"
 HVAC_MODE_HEAT = "heat"
 HVAC_MODE_OFF = "off"
 
+# The Balboa protocol enforces a *separate* valid setpoint band per preset -
+# not just the single overall min/max_temp the climate entity's own
+# attributes report. Verified directly against the gateway firmware's own
+# spaProtocolActiveSetpointBand() (esp32_balboa_spa / m5stack-hottub,
+# spaCommandDispatcher.cpp): High Range accepts 26.0-40.0C (80-104F), Low
+# Range accepts 10.0-26.0C (50-80F). Sending a set_temperature outside the
+# band that matches the currently-selected preset is rejected or clamped by
+# the real hardware - this is why max_comfort_temp (used with High Range)
+# and min_away_temp (used with Low Range) each need their own bounds,
+# rather than sharing TEMP_MIN/TEMP_MAX.
+HIGH_RANGE_MIN_C = 26.0
+HIGH_RANGE_MAX_C = 40.0
+LOW_RANGE_MIN_C = 10.0
+LOW_RANGE_MAX_C = 26.0
+
 # heatingState sensor values that mean the element is actually drawing power
 HEATING_STATE_ACTIVE_VALUES = {"Heating (active)", "Heating (alternate stage)"}
 

@@ -10,7 +10,16 @@ from homeassistant.const import UnitOfTemperature
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, TEMP_MAX, TEMP_MIN, TEMP_STEP
+from .const import (
+    DOMAIN,
+    HIGH_RANGE_MAX_C,
+    HIGH_RANGE_MIN_C,
+    LOW_RANGE_MAX_C,
+    LOW_RANGE_MIN_C,
+    TEMP_MAX,
+    TEMP_MIN,
+    TEMP_STEP,
+)
 from .coordinator import SpaMiserCoordinator
 from .entity import SpaMiserEntity
 
@@ -25,6 +34,11 @@ async def async_setup_entry(
                 coordinator,
                 key="max_comfort_temp",
                 icon="mdi:thermometer-high",
+                # Written to the spa as the High Range preset's setpoint
+                # (see coordinator._async_apply_decision) - bounded to that
+                # preset's real valid band, not the full TEMP_MIN/TEMP_MAX.
+                min_value=HIGH_RANGE_MIN_C,
+                max_value=HIGH_RANGE_MAX_C,
                 get_fn=lambda c: c.max_comfort_c,
                 set_fn=lambda c, v: c.async_set_max_comfort_c(v),
             ),
@@ -32,6 +46,11 @@ async def async_setup_entry(
                 coordinator,
                 key="min_comfort_temp",
                 icon="mdi:thermometer",
+                # Never written to the spa directly - purely a decision
+                # threshold (when to start heating) - so it isn't bound to
+                # either preset's hardware band.
+                min_value=TEMP_MIN,
+                max_value=TEMP_MAX,
                 get_fn=lambda c: c.min_comfort_c,
                 set_fn=lambda c, v: c.async_set_min_comfort_c(v),
             ),
@@ -39,6 +58,11 @@ async def async_setup_entry(
                 coordinator,
                 key="min_away_temp",
                 icon="mdi:thermometer-low",
+                # Written to the spa as the Low Range preset's setpoint (see
+                # coordinator._async_apply_decision) - bounded to that
+                # preset's real valid band, not the full TEMP_MIN/TEMP_MAX.
+                min_value=LOW_RANGE_MIN_C,
+                max_value=LOW_RANGE_MAX_C,
                 get_fn=lambda c: c.min_away_c,
                 set_fn=lambda c, v: c.async_set_min_away_c(v),
             ),
@@ -49,8 +73,6 @@ async def async_setup_entry(
 class _SpaMiserNumber(SpaMiserEntity, NumberEntity):
     _attr_device_class = NumberDeviceClass.TEMPERATURE
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
-    _attr_native_min_value = TEMP_MIN
-    _attr_native_max_value = TEMP_MAX
     _attr_native_step = TEMP_STEP
     _attr_mode = NumberMode.BOX
 
@@ -60,6 +82,8 @@ class _SpaMiserNumber(SpaMiserEntity, NumberEntity):
         *,
         key: str,
         icon: str,
+        min_value: float,
+        max_value: float,
         get_fn: Callable[[SpaMiserCoordinator], float],
         set_fn: Callable[[SpaMiserCoordinator, float], Coroutine[Any, Any, None]],
     ) -> None:
@@ -67,6 +91,8 @@ class _SpaMiserNumber(SpaMiserEntity, NumberEntity):
         self._key = key
         self._attr_translation_key = key
         self._attr_icon = icon
+        self._attr_native_min_value = min_value
+        self._attr_native_max_value = max_value
         self._get_fn = get_fn
         self._set_fn = set_fn
 

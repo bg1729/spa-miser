@@ -97,7 +97,7 @@ device page can.
 |---|---|
 | `switch.spa_miser_enabled` | Master on/off for automatic control (shadow mode when off) |
 | `switch.spa_miser_away_mode` | Deep setback to the min/away floor |
-| `number.spa_miser_max_comfort_temp` / `min_comfort_temp` / `min_away_temp` | Live-adjustable comfort window |
+| `number.spa_miser_max_comfort_temp` / `min_comfort_temp` / `min_away_temp` | Live-adjustable comfort window - `max_comfort_temp` (26-40°C) and `min_away_temp` (10-26°C) are each bounded to the real hardware's valid setpoint range for the High Range / Low Range preset they're written to; `min_comfort_temp` is a decision threshold only, never written to the spa directly |
 | `button.spa_miser_estimate_initial_model` | Bootstraps a first model fit now instead of waiting ~24h - see [Bootstrapping the model](#bootstrapping-the-model) |
 
 **Model state & outputs:**
