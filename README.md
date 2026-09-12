@@ -225,11 +225,13 @@ and actual) is drawn as a warm-colored, full-height rectangle on a third,
 hidden 0-1 axis - the y-position isn't meaningful (on/off has no
 magnitude), only the x-extent (when it was/will be on) matters, so the fill
 deliberately spans the whole chart height rather than sitting at some
-arbitrary partial height. Actual heating is solid red; planned heating is a
-dotted burnt-orange outline (`apex_config.stroke.dashArray`, one entry per
-series) - same warm family, but visually distinct from both each other and
-from the (also-orange) price line. This is what actually shows *when* the
-heater ran (or will run) against *when* electricity was cheap.
+arbitrary partial height. Both are pure fills with `stroke_width: 0` - no
+outline, just the rectangle - since a border adds nothing a solid fill
+doesn't already show. Actual heating is red, planned heating is burnt
+orange: same warm family, but visually distinct from each other and from
+price (yellow, not orange, precisely so it doesn't get lost among them).
+This is what actually shows *when* the heater ran (or will run) against
+*when* electricity was cheap.
 
 Every series sets `show.legend_value: false`. apexcharts-card's default
 legend shows each series' *last value within the currently-visible time
@@ -359,10 +361,9 @@ card:
     chart:
       height: 450
     stroke:
-      # One entry per series below, in order - 3 dots the two heating
-      # rectangles' border, 4 dots the two setpoint reference lines, 0
-      # (solid) for every other series.
-      dashArray: [0, 0, 0, 3, 3, 4, 4]
+      # One entry per series below, in order - 4 dots the two setpoint
+      # reference lines, 0 (solid, or moot at stroke_width: 0) elsewhere.
+      dashArray: [0, 0, 0, 0, 0, 4, 4]
   # Drives both what gets fetched and what gets displayed - see prose
   # above for why this has to be span.offset, not apex_config.xaxis.
   span:
@@ -422,7 +423,7 @@ card:
     - entity: sensor.spa_miser_price_slots_available
       name: Price
       yaxis_id: price
-      color: "#ff7f0e"
+      color: "#f1c40f"
       curve: stepline
       stroke_width: 1.5
       extend_to: false
@@ -439,7 +440,7 @@ card:
       color: "#d62728"
       opacity: 0.25
       curve: stepline
-      stroke_width: 2
+      stroke_width: 0
       extend_to: now
       show:
         legend_value: false
@@ -451,7 +452,7 @@ card:
       color: "#d95f02"
       opacity: 0.15
       curve: stepline
-      stroke_width: 2
+      stroke_width: 0
       extend_to: false
       show:
         legend_value: false
