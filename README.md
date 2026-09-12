@@ -370,6 +370,13 @@ three diverging is informative: model vs. actual reveals fit quality,
 setpoint vs. actual reveals how fast the tub responds (or whether
 something's stopping it from reaching target at all).
 
+A light dotted line at 0 on the price axis (`apex_config.annotations.yaxis`)
+marks where negative pricing begins. It targets the price axis specifically
+via `yAxisIndex` (a plain ApexCharts annotation, not tied to any series),
+and needs no explicit "only if in range" handling: the price axis has no
+min/max set, so it's fully auto-scaled, and the line simply doesn't render
+on days real prices never cross zero.
+
 ```yaml
 type: custom:config-template-card
 entities:
@@ -412,6 +419,18 @@ card:
       # theme.
       borderColor: "rgba(255, 255, 255, 0.12)"
       strokeDashArray: 3
+    annotations:
+      yaxis:
+        - y: 0
+          # yAxisIndex is the price axis's position in the yaxis list below
+          # (0=temp, 1=price, 2=heat) - update this if that order changes.
+          # No explicit range check needed for "only if 0 is actually in
+          # view": the price axis is fully auto-scaled (no min/max set), so
+          # this annotation simply doesn't render when real prices never
+          # cross zero.
+          yAxisIndex: 1
+          borderColor: "rgba(255, 255, 255, 0.25)"
+          strokeDashArray: 2
     stroke:
       # One entry per series below, in order - 3 dots Expected temperature,
       # 4 dots the two comfort-window reference lines, 0 (solid, or moot at
