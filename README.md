@@ -329,9 +329,19 @@ reference lines for the comfort window - bound directly to
 `number.spa_miser_max_comfort_temp`/`min_comfort_temp` rather than
 hardcoded numbers, so they stay correct if you ever adjust those sliders.
 Unlike the price/plan series, `extend_to: end` is intentional here: a
-setpoint isn't time-varying forecast data that could be wrong beyond some
-horizon, it's a live config value that applies uniformly across the whole
-chart.
+comfort bound isn't time-varying forecast data that could be wrong beyond
+some horizon, it's a live config value that applies uniformly across the
+whole chart.
+
+`Setpoint` plots the spa's real `climate` entity's own `temperature`
+attribute (via apexcharts-card's `attribute` option, not `data_generator`
+- it's ordinary recorder history, not a computed series) - what spa-miser
+(or a manual override) actually told the tub to hold, distinct from both
+`Expected temperature` (the thermal model's *prediction* of what the water
+will do) and `Actual temperature` (what the water *actually* did). All
+three diverging is informative: model vs. actual reveals fit quality,
+setpoint vs. actual reveals how fast the tub responds (or whether
+something's stopping it from reaching target at all).
 
 ```yaml
 type: custom:config-template-card
@@ -367,9 +377,9 @@ card:
       height: 450
     stroke:
       # One entry per series below, in order - 3 dots Expected temperature,
-      # 4 dots the two setpoint reference lines, 0 (solid, or moot at
+      # 4 dots the two comfort-window reference lines, 0 (solid, or moot at
       # stroke_width: 0) elsewhere.
-      dashArray: [0, 3, 0, 0, 0, 4, 4]
+      dashArray: [0, 3, 0, 0, 0, 0, 4, 4]
   # Drives both what gets fetched and what gets displayed - see prose
   # above for why this has to be span.offset, not apex_config.xaxis.
   span:
@@ -426,6 +436,16 @@ card:
         return entity.attributes.slots.map((slot) => [
           new Date(slot.start).getTime(), slot.planned_temp_c
         ]);
+    - entity: climate.balboa_spa_spa_controls
+      attribute: temperature
+      name: Setpoint
+      yaxis_id: temp
+      color: "#2ca02c"
+      curve: stepline
+      stroke_width: 1.5
+      extend_to: now
+      show:
+        legend_value: false
     - entity: sensor.spa_miser_price_slots_available
       name: Price
       yaxis_id: price
