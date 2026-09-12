@@ -221,12 +221,15 @@ which *do* need a successful thermal-model fit first - so this one stays
 its own series, separate from the ever-present price curve), and the real
 past data from `sensor.spa_miser_water_temperature` / `heating_state`.
 Temperature and price get their own y-axes; heating on/off (both planned
-and actual) is drawn as a low-opacity, full-height rectangle on a third,
+and actual) is drawn as a warm-colored, full-height rectangle on a third,
 hidden 0-1 axis - the y-position isn't meaningful (on/off has no
 magnitude), only the x-extent (when it was/will be on) matters, so the fill
 deliberately spans the whole chart height rather than sitting at some
-arbitrary partial height. This is what actually shows *when* the heater ran
-(or will run) against *when* electricity was cheap.
+arbitrary partial height. Actual heating is solid red; planned heating is a
+dotted burnt-orange outline (`apex_config.stroke.dashArray`, one entry per
+series) - same warm family, but visually distinct from both each other and
+from the (also-orange) price line. This is what actually shows *when* the
+heater ran (or will run) against *when* electricity was cheap.
 
 ```yaml
 type: custom:apexcharts-card
@@ -235,6 +238,10 @@ header:
 apex_config:
   chart:
     height: 450
+  stroke:
+    # One entry per series below, in order - 3 gives the two heating
+    # rectangles a dotted border; 0 (solid) for every other series.
+    dashArray: [0, 0, 0, 3, 3]
 graph_span: 48h
 span:
   start: day
@@ -287,19 +294,19 @@ series:
     name: Actual heating
     yaxis_id: heat
     type: area
-    color: "#2ca02c"
-    opacity: 0.3
+    color: "#d62728"
+    opacity: 0.25
     curve: stepline
-    stroke_width: 0
+    stroke_width: 2
     transform: 'return (x === "Heating (active)" || x === "Heating (alternate stage)") ? 1 : 0;'
   - entity: sensor.spa_miser_daily_strategy
     name: Planned heating
     yaxis_id: heat
     type: area
-    color: "#bcbd22"
-    opacity: 0.2
+    color: "#d95f02"
+    opacity: 0.15
     curve: stepline
-    stroke_width: 0
+    stroke_width: 2
     data_generator: |
       return entity.attributes.slots.map((slot) => [
         new Date(slot.start).getTime(), slot.heat_on ? 1 : 0
