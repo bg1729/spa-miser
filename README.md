@@ -256,6 +256,15 @@ the same default) extends *those* only up to the present moment, not into
 the future - they're real recorded state, but still can't have data beyond
 "now" either.
 
+Two more series, `Max comfort`/`Min comfort`, draw dotted horizontal
+reference lines for the comfort window - bound directly to
+`number.spa_miser_max_comfort_temp`/`min_comfort_temp` rather than
+hardcoded numbers, so they stay correct if you ever adjust those sliders.
+Unlike the price/plan series, `extend_to: end` is intentional here: a
+setpoint isn't time-varying forecast data that could be wrong beyond some
+horizon, it's a live config value that applies uniformly across the whole
+chart.
+
 ```yaml
 type: custom:apexcharts-card
 header:
@@ -264,9 +273,10 @@ apex_config:
   chart:
     height: 450
   stroke:
-    # One entry per series below, in order - 3 gives the two heating
-    # rectangles a dotted border; 0 (solid) for every other series.
-    dashArray: [0, 0, 0, 3, 3]
+    # One entry per series below, in order - 3 dots the two heating
+    # rectangles' border, 4 dots the two setpoint reference lines, 0
+    # (solid) for every other series.
+    dashArray: [0, 0, 0, 3, 3, 4, 4]
 graph_span: 48h
 span:
   start: day
@@ -360,6 +370,24 @@ series:
       return entity.attributes.slots.map((slot) => [
         new Date(slot.start).getTime(), slot.heat_on ? 1 : 0
       ]);
+  - entity: number.spa_miser_max_comfort_temp
+    name: Max comfort
+    yaxis_id: temp
+    color: "#595959"
+    type: line
+    stroke_width: 1
+    extend_to: end
+    show:
+      legend_value: false
+  - entity: number.spa_miser_min_comfort_temp
+    name: Min comfort
+    yaxis_id: temp
+    color: "#a5a5a5"
+    type: line
+    stroke_width: 1
+    extend_to: end
+    show:
+      legend_value: false
 ```
 
 ## How it decides
