@@ -407,7 +407,9 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
         ):
             await self._async_apply_control(decision, active_preset)
 
-        model_temp = self._predict_model_temperature(current_temp, forecast)
+        model_temp = self._predict_model_temperature(
+            current_temp, forecast, decision, active_preset
+        )
         predicted_kwh = self._estimate_predicted_kwh_today(forecast)
         actual_kwh = self._read_actual_kwh_today()
         cost_saved = self._estimate_cost_saved_today(price_slots, actual_kwh, ceiling)
@@ -710,11 +712,34 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
         return state.state
 
     def _predict_model_temperature(
-        self, current_temp: float | None, forecast: list[ForecastPoint]
+        self,
+        current_temp: float | None,
+        forecast: list[ForecastPoint],
+        decision: Decision | None,
+        active_preset: str,
     ) -> float | None:
+        """One-tick-ahead prediction, for sensor.spa_miser_model_temperature.
+
+        Deliberately derived from the coordinator's own current intent
+        (decision/active_preset) rather than the live spa_control.hvac_mode:
+        that used to double as a reasonable "is the heater actually
+        drawing power" proxy back when coasting genuinely toggled hvac_mode
+        to off, but since coasting now only changes the *setpoint* (see
+        _async_apply_control), hvac_mode is essentially always "heat" -
+        and a manual-override pause can freeze it at a value from before
+        the pause that no longer means anything, e.g. a pump-speed change
+        incidentally flipping the gateway's reported hvac_mode. Basing
+        this on intent instead means it reflects what spa-miser's own
+        logic currently calls for even while shadow mode or an override
+        means nothing is actually being applied - consistent with how
+        sensor.spa_miser_daily_strategy already behaves.
+        """
         if self._model is None or current_temp is None or not forecast:
             return None
-        heat_on = self.spa_control.hvac_mode == "heat"
+        if active_preset == PRESET_LOW_RANGE:
+            heat_on = current_temp < self._min_away_c
+        else:
+            heat_on = decision is not None and decision.heat_recommended
         power_kw = (
             0.0
             if not heat_on or self._model.input_coefficient <= 0

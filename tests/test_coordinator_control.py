@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
+from homeassistant.core import Context, HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -424,3 +424,100 @@ async def test_range_enforced_even_without_a_decision_yet(
     assert service_calls["set_hvac_mode"]["hvac_mode"] == "heat"
     assert coordinator.data.active_preset == PRESET_LOW_RANGE
     assert coordinator.data.range_reason == "away_mode"
+
+
+async def test_model_temperature_ignores_a_stale_overridden_hvac_mode(
+    recorder_mock, hass: HomeAssistant, enable_custom_integrations
+):
+    """sensor.spa_miser_model_temperature must reflect the coordinator's own
+    current intent (decision/active_preset), not spa_control.hvac_mode - a
+    manual override (e.g. a pump-speed change incidentally flipping the
+    gateway's reported hvac_mode, as seen live this session) can freeze
+    that at a value with nothing to do with the current decision."""
+    # Already at the ceiling with nothing cheap to wait for - both the DP
+    # and the greedy fallback should agree there's no reason to heat now.
+    coordinator, _calls = await _setup_coordinator(
+        hass, cheap_now=False, current_temp=39.5, initial_target_temp=39.5
+    )
+
+    await coordinator.async_set_enabled(True)
+    await hass.async_block_till_done()
+
+    assert coordinator.data.decision is not None
+    assert coordinator.data.decision.heat_recommended is False
+    assert coordinator.data.model_temperature_c is not None
+    assert coordinator.data.model_temperature_c <= 39.5 + 0.01, (
+        "predicted a rise while coasting at the ceiling"
+    )
+
+    # Simulate the live incident: hvac_mode is already "heat" (spa-miser's
+    # own doing - it's never "off" any more), so a same-value rewrite of it
+    # alone wouldn't register as a change at all. What actually happened
+    # live was a pump-speed change tripping the override via a different
+    # attribute while hvac_mode stayed frozen at "heat" underneath it -
+    # reproduce that by changing preset_mode externally instead, leaving
+    # hvac_mode genuinely stuck at "heat" while the decision still says
+    # coast, exactly like the live incident.
+    current = hass.states.get(CLIMATE_ENTITY)
+    assert current.state == "heat"
+    hass.states.async_set(
+        CLIMATE_ENTITY,
+        "heat",
+        {**current.attributes, "preset_mode": "Low Range"},
+        context=Context(),
+    )
+    await hass.async_block_till_done()
+    assert coordinator.spa_control.is_manually_overridden is True
+
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    # The decision itself hasn't changed - still coasting at the ceiling -
+    # so the model prediction must not change either, even though the real
+    # (now-overridden) entity's hvac_mode reports "heat".
+    assert coordinator.data.decision.heat_recommended is False
+    assert coordinator.data.model_temperature_c is not None
+    assert coordinator.data.model_temperature_c <= 39.5 + 0.01, (
+        "predicted a rise from a stale overridden hvac_mode"
+    )
+
+
+async def test_model_temperature_predicts_heating_toward_the_away_floor(
+    recorder_mock, hass: HomeAssistant, enable_custom_integrations
+):
+    """In Low Range (away mode here), the model should predict heating
+    once below min_away_temp, independent of the DP's own decision (which
+    is computed against the normal comfort window and ignored while Low
+    Range is in force) - and should predict no heating while still above
+    that floor."""
+    coordinator, _calls = await _setup_coordinator(
+        hass,
+        cheap_now=False,
+        current_temp=20.0,  # below min_away_temp (25.0)
+        initial_target_temp=25.0,
+        extra_options={CONF_AWAY_MODE: True},
+        initial_preset="Low Range",
+    )
+
+    await coordinator.async_set_enabled(True)
+    await hass.async_block_till_done()
+
+    assert coordinator.data.active_preset == PRESET_LOW_RANGE
+    assert coordinator.data.model_temperature_c is not None
+    assert coordinator.data.model_temperature_c > 20.0, (
+        "did not predict heating toward the away floor while below it"
+    )
+
+    # Now above the floor - the onboard thermostat wouldn't be drawing
+    # power, so neither should the model.
+    hass.states.async_set(
+        "sensor.balboa_spa_current_temperature", "30.0", context=Context()
+    )
+    await hass.async_block_till_done()
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    assert coordinator.data.model_temperature_c is not None
+    assert coordinator.data.model_temperature_c <= 30.0 + 0.01, (
+        "predicted heating above the away floor"
+    )
