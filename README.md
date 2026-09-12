@@ -257,7 +257,16 @@ now:
   label: Now
 yaxis:
   - id: temp
-    decimals: 0
+    # Soft bounds spanning the tub's realistic operating range (still
+    # auto-expands if real data ever goes outside them, e.g. away mode) -
+    # without these, apexcharts-card auto-scales tightly around whatever
+    # narrow range is currently visible, which makes an ordinary ~0.5°C
+    # fluctuation look like a dramatic swing. decimals: 1 (not 0) so two
+    # distinct nearby values (e.g. 37.6 and 38.2) don't round to the same
+    # tick label and appear to duplicate.
+    min: "~30"
+    max: "~42"
+    decimals: 1
     apex_config:
       title:
         text: "°C"
