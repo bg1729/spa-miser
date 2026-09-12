@@ -263,11 +263,13 @@ series:
     name: Actual temperature
     yaxis_id: temp
     color: "#1f77b4"
+    stroke_width: 1.5
   - entity: sensor.spa_miser_daily_strategy
     name: Planned temperature
     yaxis_id: temp
     color: "#17becf"
     curve: stepline
+    stroke_width: 1.5
     data_generator: |
       return entity.attributes.slots.map((slot) => [
         new Date(slot.start).getTime(), slot.planned_temp_c
@@ -276,11 +278,13 @@ series:
     name: Actual price
     yaxis_id: price
     color: "#ff7f0e"
+    stroke_width: 1.5
   - entity: sensor.spa_miser_price_slots_available
     name: Forecast price
     yaxis_id: price
     color: "#9467bd"
     curve: stepline
+    stroke_width: 1.5
     data_generator: |
       return entity.attributes.slots.map((slot) => [
         new Date(slot.start).getTime(), slot.price * 100
