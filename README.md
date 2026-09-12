@@ -256,18 +256,44 @@ default) extends *those* only up to the present moment, not into the
 future - they're real recorded state, but still can't have data beyond
 "now" either.
 
-`graph_span: 36h` is a compromise, not an exact fit: apexcharts-card has no
-way to bind the visible x-axis range to actual entity data (`graph_span`
-only takes a fixed duration, and `apex_config` fields aren't templated
-against entity state), so it can't be made to end exactly where our price
-data ends - that boundary moves during the day anyway. Real coverage is
-actually bimodal, not gradual: before Octopus publishes tomorrow's rates
-(~4pm) we only have ~24h of real data (today, from local midnight); after
-~4pm we have a full ~48h (today + tomorrow). 36h splits the difference -
-away from the default 48h, a lot of blank canvas after a plan recomputes
-mid-morning would be visible; fixed at 24h, part of tomorrow's already-known
-plan would be clipped off every evening. Either edge of that range is a
-defensible choice; this just picks the middle.
+The visible window is a rolling 36h ending exactly where real price data
+ends, not a fixed calendar span - "beyond that is pointless, we have no
+useful data" for the right edge, and "right edge minus 36h" for the left,
+so old, no-longer-relevant history keeps sliding out on its own as new
+price data arrives. apexcharts-card alone can't do this - `graph_span` only
+takes a fixed duration and `apex_config` fields are static YAML, not
+templated against entity state - so the chart is wrapped in
+[config-template-card](https://github.com/iantrich/config-template-card)
+(also via HACS), which can replace *any* nested field in another card's
+config with a live JavaScript expression, re-evaluated whenever a watched
+entity changes:
+
+```yaml
+variables:
+  PRICE_END_MS: >-
+    (() => { const s =
+    (states['sensor.spa_miser_price_slots_available'].attributes.slots)||[];
+    return s.length ? Math.max(...s.map(x => new Date(x.end).getTime())) :
+    Date.now(); })()
+  WINDOW_START_MS: PRICE_END_MS - 36 * 60 * 60 * 1000
+```
+
+`PRICE_END_MS` finds the latest slot end across the whole price forecast
+(sourced from `sensor.spa_miser_price_slots_available`, independent of the
+strategy, so this works even before/without one - see above); `WINDOW_START_MS`
+is just 36h earlier. Those get plugged into `apex_config.xaxis.min`/`max`
+on the wrapped chart - a direct ApexCharts override, applied *after*
+apexcharts-card's own data fetching. That fetch still needs a
+conventionally-fixed `span`/`graph_span` (`start: day, offset: -1d` /
+`72h` - a full day further back and two further forward than the visible
+window could ever need), since apexcharts-card decides how much raw
+history/forecast to request from each entity *before* our xaxis override
+gets applied - too narrow a fetch window would leave the templated visible
+range with real gaps at its edges. Because the right edge tracks real data
+exactly, this also fixes what a fixed span never could: the moment
+Octopus publishes tomorrow's rates (~4pm), the window jumps forward with
+it - no waiting for a calendar boundary, no clipping part of a plan that's
+already known.
 
 Two more series, `Max comfort`/`Min comfort`, draw dotted horizontal
 reference lines for the comfort window - bound directly to
@@ -279,128 +305,151 @@ horizon, it's a live config value that applies uniformly across the whole
 chart.
 
 ```yaml
-type: custom:apexcharts-card
-header:
-  title: Spa heating plan vs. actual
-apex_config:
-  chart:
-    height: 450
-  stroke:
-    # One entry per series below, in order - 3 dots the two heating
-    # rectangles' border, 4 dots the two setpoint reference lines, 0
-    # (solid) for every other series.
-    dashArray: [0, 0, 0, 3, 3, 4, 4]
-graph_span: 36h
-span:
-  start: day
-now:
-  show: true
-  label: Now
-yaxis:
-  - id: temp
-    # Soft bounds spanning the tub's realistic operating range (still
-    # auto-expands if real data ever goes outside them, e.g. away mode) -
-    # without these, apexcharts-card auto-scales tightly around whatever
-    # narrow range is currently visible, which makes an ordinary ~0.5°C
-    # fluctuation look like a dramatic swing. decimals: 1 (not 0) so two
-    # distinct nearby values (e.g. 37.6 and 38.2) don't round to the same
-    # tick label and appear to duplicate.
-    min: "~30"
-    max: "~42"
-    decimals: 1
-    apex_config:
-      title:
-        text: "°C"
-  - id: price
-    opposite: true
-    decimals: 0
-    apex_config:
-      title:
-        text: "p/kWh"
-  - id: heat
-    show: false
-    min: 0
-    max: 1
-series:
-  - entity: sensor.spa_miser_water_temperature
-    name: Actual temperature
-    yaxis_id: temp
-    color: "#1f77b4"
-    stroke_width: 1.5
-    extend_to: now
-    show:
-      legend_value: false
-  - entity: sensor.spa_miser_daily_strategy
-    name: Expected temperature
-    yaxis_id: temp
-    color: "#17becf"
-    curve: stepline
-    stroke_width: 1.5
-    extend_to: false
-    show:
-      legend_value: false
-    data_generator: |
-      return entity.attributes.slots.map((slot) => [
-        new Date(slot.start).getTime(), slot.planned_temp_c
-      ]);
-  - entity: sensor.spa_miser_price_slots_available
-    name: Price
-    yaxis_id: price
-    color: "#ff7f0e"
-    curve: stepline
-    stroke_width: 1.5
-    extend_to: false
-    show:
-      legend_value: false
-    data_generator: |
-      return entity.attributes.slots.map((slot) => [
-        new Date(slot.start).getTime(), slot.price * 100
-      ]);
-  - entity: sensor.spa_miser_heating_state
-    name: Actual heating
-    yaxis_id: heat
-    type: area
-    color: "#d62728"
-    opacity: 0.25
-    curve: stepline
-    stroke_width: 2
-    extend_to: now
-    show:
-      legend_value: false
-    transform: 'return (x === "Heating (active)" || x === "Heating (alternate stage)") ? 1 : 0;'
-  - entity: sensor.spa_miser_daily_strategy
-    name: Planned heating
-    yaxis_id: heat
-    type: area
-    color: "#d95f02"
-    opacity: 0.15
-    curve: stepline
-    stroke_width: 2
-    extend_to: false
-    show:
-      legend_value: false
-    data_generator: |
-      return entity.attributes.slots.map((slot) => [
-        new Date(slot.start).getTime(), slot.heat_on ? 1 : 0
-      ]);
-  - entity: number.spa_miser_max_comfort_temp
-    name: Max comfort
-    yaxis_id: temp
-    color: "#595959"
-    type: line
-    stroke_width: 1
-    extend_to: end
-    show:
-      legend_value: false
-  - entity: number.spa_miser_min_comfort_temp
-    name: Min comfort
-    yaxis_id: temp
-    color: "#a5a5a5"
-    type: line
-    stroke_width: 1
-    extend_to: end
-    show:
-      legend_value: false
+type: custom:config-template-card
+entities:
+  # Only entities referenced inside `variables` need listing here - it's
+  # what triggers re-evaluating them, not what the wrapped chart itself
+  # reads (that's handled by apexcharts-card as normal).
+  - sensor.spa_miser_price_slots_available
+variables:
+  PRICE_END_MS: >-
+    (() => { const s =
+    (states['sensor.spa_miser_price_slots_available'].attributes.slots)||[];
+    return s.length ? Math.max(...s.map(x => new Date(x.end).getTime())) :
+    Date.now(); })()
+  WINDOW_START_MS: PRICE_END_MS - 36 * 60 * 60 * 1000
+card:
+  type: custom:apexcharts-card
+  header:
+    title: Spa heating plan vs. actual
+  apex_config:
+    chart:
+      height: 450
+    stroke:
+      # One entry per series below, in order - 3 dots the two heating
+      # rectangles' border, 4 dots the two setpoint reference lines, 0
+      # (solid) for every other series.
+      dashArray: [0, 0, 0, 3, 3, 4, 4]
+    xaxis:
+      # The actual visible window - a direct ApexCharts override applied
+      # after apexcharts-card's own data fetch (see span/graph_span below).
+      min: ${WINDOW_START_MS}
+      max: ${PRICE_END_MS}
+  # Only controls how much raw data apexcharts-card fetches per entity -
+  # wider than the visible window on both sides on purpose (see prose
+  # above), since the actual crop happens via apex_config.xaxis above.
+  span:
+    start: day
+    offset: -1d
+  graph_span: 72h
+  now:
+    show: true
+    label: Now
+  yaxis:
+    - id: temp
+      # Soft bounds spanning the tub's realistic operating range (still
+      # auto-expands if real data ever goes outside them, e.g. away mode) -
+      # without these, apexcharts-card auto-scales tightly around whatever
+      # narrow range is currently visible, which makes an ordinary ~0.5°C
+      # fluctuation look like a dramatic swing. decimals: 1 (not 0) so two
+      # distinct nearby values (e.g. 37.6 and 38.2) don't round to the same
+      # tick label and appear to duplicate.
+      min: "~30"
+      max: "~42"
+      decimals: 1
+      apex_config:
+        title:
+          text: "°C"
+    - id: price
+      opposite: true
+      decimals: 0
+      apex_config:
+        title:
+          text: "p/kWh"
+    - id: heat
+      show: false
+      min: 0
+      max: 1
+  series:
+    - entity: sensor.spa_miser_water_temperature
+      name: Actual temperature
+      yaxis_id: temp
+      color: "#1f77b4"
+      stroke_width: 1.5
+      extend_to: now
+      show:
+        legend_value: false
+    - entity: sensor.spa_miser_daily_strategy
+      name: Expected temperature
+      yaxis_id: temp
+      color: "#17becf"
+      curve: stepline
+      stroke_width: 1.5
+      extend_to: false
+      show:
+        legend_value: false
+      data_generator: |
+        return entity.attributes.slots.map((slot) => [
+          new Date(slot.start).getTime(), slot.planned_temp_c
+        ]);
+    - entity: sensor.spa_miser_price_slots_available
+      name: Price
+      yaxis_id: price
+      color: "#ff7f0e"
+      curve: stepline
+      stroke_width: 1.5
+      extend_to: false
+      show:
+        legend_value: false
+      data_generator: |
+        return entity.attributes.slots.map((slot) => [
+          new Date(slot.start).getTime(), slot.price * 100
+        ]);
+    - entity: sensor.spa_miser_heating_state
+      name: Actual heating
+      yaxis_id: heat
+      type: area
+      color: "#d62728"
+      opacity: 0.25
+      curve: stepline
+      stroke_width: 2
+      extend_to: now
+      show:
+        legend_value: false
+      transform: 'return (x === "Heating (active)" || x === "Heating (alternate stage)") ? 1 : 0;'
+    - entity: sensor.spa_miser_daily_strategy
+      name: Planned heating
+      yaxis_id: heat
+      type: area
+      color: "#d95f02"
+      opacity: 0.15
+      curve: stepline
+      stroke_width: 2
+      extend_to: false
+      show:
+        legend_value: false
+      data_generator: |
+        return entity.attributes.slots.map((slot) => [
+          new Date(slot.start).getTime(), slot.heat_on ? 1 : 0
+        ]);
+    - entity: number.spa_miser_max_comfort_temp
+      name: Max comfort
+      yaxis_id: temp
+      color: "#595959"
+      type: line
+      stroke_width: 1
+      extend_to: end
+      show:
+        legend_value: false
+    - entity: number.spa_miser_min_comfort_temp
+      name: Min comfort
+      yaxis_id: temp
+      color: "#a5a5a5"
+      type: line
+      stroke_width: 1
+      extend_to: end
+      show:
+        legend_value: false
 ```
 
 ## How it decides
