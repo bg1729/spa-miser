@@ -217,10 +217,12 @@ strategy needs a successful thermal-model fit first - keeping them apart
 means the price forecast still shows even before/without a strategy. Both
 sit alongside the real past data from `sensor.spa_miser_water_temperature` /
 `current_price` / `heating_state`. Temperature and price get their own
-y-axes; heating on/off (both planned and actual) is drawn as a low-opacity
-band on a third, hidden axis so it's visible without dominating the chart -
-this is what actually shows *when* the heater ran (or will run) against
-*when* electricity was cheap.
+y-axes; heating on/off (both planned and actual) is drawn as a low-opacity,
+full-height rectangle on a third, hidden 0-1 axis - the y-position isn't
+meaningful (on/off has no magnitude), only the x-extent (when it was/will be
+on) matters, so the fill deliberately spans the whole chart height rather
+than sitting at some arbitrary partial height. This is what actually shows
+*when* the heater ran (or will run) against *when* electricity was cheap.
 
 Note that "forecast price" isn't a decision spa-miser makes (unlike planned
 temperature/heating) - it's the same tariff data received from the price
@@ -255,7 +257,7 @@ yaxis:
   - id: heat
     show: false
     min: 0
-    max: 4
+    max: 1
 series:
   - entity: sensor.spa_miser_water_temperature
     name: Actual temperature
@@ -289,6 +291,8 @@ series:
     type: area
     color: "#2ca02c"
     opacity: 0.3
+    curve: stepline
+    stroke_width: 0
     transform: 'return (x === "Heating (active)" || x === "Heating (alternate stage)") ? 1 : 0;'
   - entity: sensor.spa_miser_daily_strategy
     name: Planned heating
@@ -297,6 +301,7 @@ series:
     color: "#bcbd22"
     opacity: 0.2
     curve: stepline
+    stroke_width: 0
     data_generator: |
       return entity.attributes.slots.map((slot) => [
         new Date(slot.start).getTime(), slot.heat_on ? 1 : 0
