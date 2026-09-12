@@ -361,9 +361,10 @@ card:
     chart:
       height: 450
     stroke:
-      # One entry per series below, in order - 4 dots the two setpoint
-      # reference lines, 0 (solid, or moot at stroke_width: 0) elsewhere.
-      dashArray: [0, 0, 0, 0, 0, 4, 4]
+      # One entry per series below, in order - 3 dots Expected temperature,
+      # 4 dots the two setpoint reference lines, 0 (solid, or moot at
+      # stroke_width: 0) elsewhere.
+      dashArray: [0, 3, 0, 0, 0, 4, 4]
   # Drives both what gets fetched and what gets displayed - see prose
   # above for why this has to be span.offset, not apex_config.xaxis.
   span:
