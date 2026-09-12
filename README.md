@@ -367,14 +367,24 @@ variables:
 # column_span.
 grid_options:
   columns: full
-  rows: 24
+  # "auto", not a number: a numeric rows value forces an explicit
+  # container height (rows * row-height) via CSS regardless of the chart's
+  # actual rendered height - with a much shorter chart than the forced
+  # container, that left a large dead-space gap below it. "auto" sizes the
+  # container to the chart's real height instead.
+  rows: auto
 card:
   type: custom:apexcharts-card
   header:
     title: Spa heating plan vs. actual
   apex_config:
     chart:
-      height: 450
+      height: 900
+    grid:
+      # Default ApexCharts grid lines read as too bright against HA's dark
+      # theme.
+      borderColor: "rgba(255, 255, 255, 0.12)"
+      strokeDashArray: 3
     stroke:
       # One entry per series below, in order - 3 dots Expected temperature,
       # 4 dots the two comfort-window reference lines, 0 (solid, or moot at
