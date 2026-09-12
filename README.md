@@ -275,15 +275,28 @@ variables:
     (states['sensor.spa_miser_price_slots_available'].attributes.slots)||[];
     return s.length ? Math.max(...s.map(x => new Date(x.end).getTime())) :
     Date.now(); })()
-  WINDOW_START_MS: PRICE_END_MS - 36 * 60 * 60 * 1000
 ```
 
 `PRICE_END_MS` finds the latest slot end across the whole price forecast
 (sourced from `sensor.spa_miser_price_slots_available`, independent of the
-strategy, so this works even before/without one - see above); `WINDOW_START_MS`
-is just 36h earlier. Those get plugged into `apex_config.xaxis.min`/`max`
-on the wrapped chart - a direct ApexCharts override, applied *after*
-apexcharts-card's own data fetching. That fetch still needs a
+strategy, so this works even before/without one - see above). It gets
+plugged into `apex_config.xaxis.min`/`max` on the wrapped chart (the left
+bound computed inline as `PRICE_END_MS - 36h`, in milliseconds) - a direct
+ApexCharts override, applied *after* apexcharts-card's own data fetching.
+
+Deliberately **not** a second `WINDOW_START_MS` variable referencing
+`PRICE_END_MS`: config-template-card evaluates each `variables:` entry with
+`eval()` on its own, before any of them (including itself) are injected
+into scope - only the *final* templated fields inside `card:` get every
+variable injected first. A `WINDOW_START_MS` variable referencing
+`PRICE_END_MS` throws a `ReferenceError` on every render (with no
+try/catch anywhere in the call chain, so the whole card silently renders
+blank - it looks identical to a data problem, hence this note). Doing the
+subtraction inline in `card.apex_config.xaxis.min` instead works because
+that field *is* one of the final templated fields with everything in
+scope.
+
+That fetch still needs a
 conventionally-fixed `span`/`graph_span` (`start: day, offset: -1d` /
 `72h` - a full day further back and two further forward than the visible
 window could ever need), since apexcharts-card decides how much raw
@@ -317,7 +330,6 @@ variables:
     (states['sensor.spa_miser_price_slots_available'].attributes.slots)||[];
     return s.length ? Math.max(...s.map(x => new Date(x.end).getTime())) :
     Date.now(); })()
-  WINDOW_START_MS: PRICE_END_MS - 36 * 60 * 60 * 1000
 card:
   type: custom:apexcharts-card
   header:
@@ -333,7 +345,7 @@ card:
     xaxis:
       # The actual visible window - a direct ApexCharts override applied
       # after apexcharts-card's own data fetch (see span/graph_span below).
-      min: ${WINDOW_START_MS}
+      min: ${PRICE_END_MS - 36 * 60 * 60 * 1000}
       max: ${PRICE_END_MS}
   # Only controls how much raw data apexcharts-card fetches per entity -
   # wider than the visible window on both sides on purpose (see prose
