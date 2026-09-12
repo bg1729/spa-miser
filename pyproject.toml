@@ -1,3 +1,11 @@
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# tests/ imports custom_components.spa_miser.* directly (it isn't an
+# installed package) - this puts the repo root on sys.path regardless of
+# how pytest is invoked. Without it, `pytest tests/` (as opposed to
+# `python -m pytest tests/`, which adds the cwd to sys.path itself) fails
+# every test at collection with ModuleNotFoundError - which is exactly
+# what CI's workflow does, and has been silently doing since this
+# project's first commit.
+pythonpath = ["."]
