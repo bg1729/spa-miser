@@ -49,10 +49,20 @@ class _SpaMiserSwitch(SpaMiserEntity, SwitchEntity):
         set_fn: Callable[[SpaMiserCoordinator, bool], Coroutine[Any, Any, None]],
     ) -> None:
         super().__init__(coordinator, key)
+        self._key = key
         self._attr_translation_key = key
         self._attr_icon = icon
         self._is_on_fn = is_on_fn
         self._set_fn = set_fn
+
+    @property
+    def suggested_object_id(self) -> str:
+        # Overridden: suggested_object_id otherwise slugifies the full
+        # translated display name (e.g. "enabled" -> "Automatic control
+        # enabled" -> entity_id ...automatic_control_enabled), drifting from
+        # the key and from what the README documents. See the identical fix
+        # on SpaMiserSensor in sensor.py.
+        return self._key
 
     @property
     def is_on(self) -> bool:

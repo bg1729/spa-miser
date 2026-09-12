@@ -64,10 +64,20 @@ class _SpaMiserNumber(SpaMiserEntity, NumberEntity):
         set_fn: Callable[[SpaMiserCoordinator, float], Coroutine[Any, Any, None]],
     ) -> None:
         super().__init__(coordinator, key)
+        self._key = key
         self._attr_translation_key = key
         self._attr_icon = icon
         self._get_fn = get_fn
         self._set_fn = set_fn
+
+    @property
+    def suggested_object_id(self) -> str:
+        # Overridden: suggested_object_id otherwise slugifies the full
+        # translated display name (e.g. "max_comfort_temp" -> "Max comfort
+        # temperature" -> entity_id ...max_comfort_temperature), drifting
+        # from the key and from what the README documents. See the
+        # identical fix on SpaMiserSensor in sensor.py.
+        return self._key
 
     @property
     def native_value(self) -> float:

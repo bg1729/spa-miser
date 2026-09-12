@@ -140,9 +140,9 @@ cards:
     entities:
       - entity: switch.spa_miser_enabled
       - entity: switch.spa_miser_away_mode
-      - entity: number.spa_miser_max_comfort_temperature
-      - entity: number.spa_miser_min_comfort_temperature
-      - entity: number.spa_miser_min_away_temperature
+      - entity: number.spa_miser_max_comfort_temp
+      - entity: number.spa_miser_min_comfort_temp
+      - entity: number.spa_miser_min_away_temp
 
   - type: entities
     title: Inputs

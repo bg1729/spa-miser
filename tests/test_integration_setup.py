@@ -62,11 +62,16 @@ async def test_setup_entry_creates_platform_entities(hass, enable_custom_integra
     assert entry.state.value == "loaded"
 
     expected_entities = [
-        "switch.spa_miser_automatic_control_enabled",
+        # suggested_object_id is pinned to each entity's description key
+        # (see SpaMiserSensor/_SpaMiserSwitch/_SpaMiserNumber), so these
+        # match the keys in switch.py/number.py exactly rather than
+        # whatever their (possibly much longer) translated display name
+        # would otherwise slugify to.
+        "switch.spa_miser_enabled",
         "switch.spa_miser_away_mode",
-        "number.spa_miser_max_comfort_temperature",
-        "number.spa_miser_min_comfort_temperature",
-        "number.spa_miser_min_away_temperature",
+        "number.spa_miser_max_comfort_temp",
+        "number.spa_miser_min_comfort_temp",
+        "number.spa_miser_min_away_temp",
         "binary_sensor.spa_miser_heating_recommended",
         "sensor.spa_miser_predicted_kwh_today",
         "sensor.spa_miser_actual_kwh_today",

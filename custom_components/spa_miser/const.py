@@ -88,8 +88,14 @@ DEFAULT_MIN_COMFORT_TEMP = 36.0
 DEFAULT_MIN_AWAY_TEMP = 25.0
 DEFAULT_MANUAL_OVERRIDE_MINUTES = 120
 
+# 40.0C (104F) is the standard safety ceiling on Balboa spa systems (and
+# hot tubs generally, per ANSI/APSP) - verified directly against a real
+# esp32_balboa_spa climate entity's own max_temp. Previously 40.5, half a
+# step above that real ceiling: a max_comfort_temp of 40.5 would pass this
+# number entity's own validation but then be rejected (or behave
+# unpredictably) when actually pushed to climate.set_temperature.
 TEMP_MIN = 10.0
-TEMP_MAX = 40.5
+TEMP_MAX = 40.0
 TEMP_STEP = 0.5
 
 # --- Preset / mode strings used by the esp32_balboa_spa climate entity ---
