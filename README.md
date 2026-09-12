@@ -270,43 +270,50 @@ entity changes:
 
 ```yaml
 variables:
-  PRICE_END_MS: >-
+  PRICE_END_OFFSET: >-
     (() => { const s =
     (states['sensor.spa_miser_price_slots_available'].attributes.slots)||[];
-    return s.length ? Math.max(...s.map(x => new Date(x.end).getTime())) :
-    Date.now(); })()
+    const end = s.length ? Math.max(...s.map(x => new Date(x.end).getTime()))
+    : Date.now(); return Math.round((end - Date.now()) / 60000) + 'min'; })()
+card:
+  span:
+    end: minute
+    offset: ${PRICE_END_OFFSET}
+  graph_span: 36h
 ```
 
-`PRICE_END_MS` finds the latest slot end across the whole price forecast
-(sourced from `sensor.spa_miser_price_slots_available`, independent of the
-strategy, so this works even before/without one - see above). It gets
-plugged into `apex_config.xaxis.min`/`max` on the wrapped chart (the left
-bound computed inline as `PRICE_END_MS - 36h`, in milliseconds) - a direct
-ApexCharts override, applied *after* apexcharts-card's own data fetching.
+`PRICE_END_OFFSET` finds the latest slot end across the whole price
+forecast (sourced from `sensor.spa_miser_price_slots_available`,
+independent of the strategy, so this works even before/without one - see
+above) and expresses it as minutes-from-now, e.g. `"842min"`.
 
-Deliberately **not** a second `WINDOW_START_MS` variable referencing
-`PRICE_END_MS`: config-template-card evaluates each `variables:` entry with
-`eval()` on its own, before any of them (including itself) are injected
-into scope - only the *final* templated fields inside `card:` get every
-variable injected first. A `WINDOW_START_MS` variable referencing
-`PRICE_END_MS` throws a `ReferenceError` on every render (with no
-try/catch anywhere in the call chain, so the whole card silently renders
-blank - it looks identical to a data problem, hence this note). Doing the
-subtraction inline in `card.apex_config.xaxis.min` instead works because
-that field *is* one of the final templated fields with everything in
-scope.
-
-That fetch still needs a
-conventionally-fixed `span`/`graph_span` (`start: day, offset: -1d` /
-`72h` - a full day further back and two further forward than the visible
-window could ever need), since apexcharts-card decides how much raw
-history/forecast to request from each entity *before* our xaxis override
-gets applied - too narrow a fetch window would leave the templated visible
-range with real gaps at its edges. Because the right edge tracks real data
+This templates `span.offset` itself, **not** `apex_config.xaxis.min`/`max`
+- an earlier version of this did the latter and it silently didn't work:
+apexcharts-card recomputes its own `xaxis.min`/`max` from `span`+
+`graph_span` on *every* data refresh and pushes that via ApexCharts'
+`updateOptions()`, overwriting any static or templated `apex_config.xaxis`
+override within moments of it being applied. Templating `span.offset`
+instead drives the mechanism the card actually uses internally, so the
+computed window survives every refresh rather than being clobbered by the
+next one. `span: {end: 'minute', offset: ...}` anchors the *right* edge at
+"now + that many minutes" (i.e. the price data's real end), and
+`graph_span: 36h` extends backward from there - no separate wide-fetch
+workaround needed, since this is now the same value driving both what gets
+fetched and what gets displayed. Because the right edge tracks real data
 exactly, this also fixes what a fixed span never could: the moment
 Octopus publishes tomorrow's rates (~4pm), the window jumps forward with
 it - no waiting for a calendar boundary, no clipping part of a plan that's
 already known.
+
+(Also worth knowing since it cost real debugging time: config-template-card
+evaluates each `variables:` entry with `eval()` on its own, *before* any
+of them - including itself - are injected into scope; only the *final*
+templated fields inside `card:` get every variable injected first. A
+second variable referencing `PRICE_END_OFFSET` in its own definition would
+throw a `ReferenceError` on every render, and since nothing in the call
+chain catches that, the whole card just silently renders blank - which
+looks identical to a data or range problem from the outside. Keeping this
+to one self-contained variable sidesteps that entirely.)
 
 Two more series, `Max comfort`/`Min comfort`, draw dotted horizontal
 reference lines for the comfort window - bound directly to
@@ -325,11 +332,17 @@ entities:
   # reads (that's handled by apexcharts-card as normal).
   - sensor.spa_miser_price_slots_available
 variables:
-  PRICE_END_MS: >-
+  PRICE_END_OFFSET: >-
     (() => { const s =
     (states['sensor.spa_miser_price_slots_available'].attributes.slots)||[];
-    return s.length ? Math.max(...s.map(x => new Date(x.end).getTime())) :
-    Date.now(); })()
+    const end = s.length ? Math.max(...s.map(x => new Date(x.end).getTime()))
+    : Date.now(); return Math.round((end - Date.now()) / 60000) + 'min'; })()
+# grid_options belongs on this outer card - the section's grid layout
+# doesn't look inside `card:` for it, which is why an earlier version of
+# this (with grid_options nested under `card:`) didn't fill the full width.
+grid_options:
+  columns: 24
+  rows: 24
 card:
   type: custom:apexcharts-card
   header:
@@ -342,18 +355,12 @@ card:
       # rectangles' border, 4 dots the two setpoint reference lines, 0
       # (solid) for every other series.
       dashArray: [0, 0, 0, 3, 3, 4, 4]
-    xaxis:
-      # The actual visible window - a direct ApexCharts override applied
-      # after apexcharts-card's own data fetch (see span/graph_span below).
-      min: ${PRICE_END_MS - 36 * 60 * 60 * 1000}
-      max: ${PRICE_END_MS}
-  # Only controls how much raw data apexcharts-card fetches per entity -
-  # wider than the visible window on both sides on purpose (see prose
-  # above), since the actual crop happens via apex_config.xaxis above.
+  # Drives both what gets fetched and what gets displayed - see prose
+  # above for why this has to be span.offset, not apex_config.xaxis.
   span:
-    start: day
-    offset: -1d
-  graph_span: 72h
+    end: minute
+    offset: ${PRICE_END_OFFSET}
+  graph_span: 36h
   now:
     show: true
     label: Now
