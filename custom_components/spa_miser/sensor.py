@@ -174,7 +174,7 @@ SENSOR_DESCRIPTIONS: tuple[SpaMiserSensorDescription, ...] = (
         key="model_fit_quality",
         translation_key="model_fit_quality",
         entity_category=EntityCategory.DIAGNOSTIC,
-        suggested_display_precision=2,
+        suggested_display_precision=3,
         value_fn=lambda d: d.model.r_squared if d.model else None,
     ),
     # Not used by the model itself - a sanity check for the fit as a whole.
