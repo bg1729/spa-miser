@@ -238,6 +238,24 @@ prediction at the far future edge of the chart, easily misread as "right
 now." The chart already has an explicit `now` marker for that, so the
 legend numbers are redundant at best and misleading at worst.
 
+Every series also sets `extend_to`, overriding apexcharts-card's default of
+`'end'` (flat-line the last known value all the way to the edge of the
+48h `graph_span`). Left at the default, the price/planned series would draw
+a straight, misleadingly-confident line across however much of the chart
+has no real data yet - most of the time we only have real Agile rates
+through midnight tonight (tomorrow's don't publish until ~4pm), so a chunk
+of that 48h span is often genuinely unknown, and pretending otherwise by
+repeating the last known price is actively wrong, not just uninformative.
+`extend_to: false` on `Planned temperature`/`Price`/`Planned heating` stops
+each line exactly where its real data ends, leaving the rest of the chart
+blank until the next price update actually extends it - which is also what
+"start a new chart" on each re-plan amounts to in practice: the same
+persistent card just always draws exactly as much real data as currently
+exists, no more. `extend_to: 'now'` on the two `Actual` series (instead of
+the same default) extends *those* only up to the present moment, not into
+the future - they're real recorded state, but still can't have data beyond
+"now" either.
+
 ```yaml
 type: custom:apexcharts-card
 header:
@@ -286,6 +304,7 @@ series:
     yaxis_id: temp
     color: "#1f77b4"
     stroke_width: 1.5
+    extend_to: now
     show:
       legend_value: false
   - entity: sensor.spa_miser_daily_strategy
@@ -294,6 +313,7 @@ series:
     color: "#17becf"
     curve: stepline
     stroke_width: 1.5
+    extend_to: false
     show:
       legend_value: false
     data_generator: |
@@ -306,6 +326,7 @@ series:
     color: "#ff7f0e"
     curve: stepline
     stroke_width: 1.5
+    extend_to: false
     show:
       legend_value: false
     data_generator: |
@@ -320,6 +341,7 @@ series:
     opacity: 0.25
     curve: stepline
     stroke_width: 2
+    extend_to: now
     show:
       legend_value: false
     transform: 'return (x === "Heating (active)" || x === "Heating (alternate stage)") ? 1 : 0;'
@@ -331,6 +353,7 @@ series:
     opacity: 0.15
     curve: stepline
     stroke_width: 2
+    extend_to: false
     show:
       legend_value: false
     data_generator: |
