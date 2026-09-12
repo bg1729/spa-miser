@@ -27,6 +27,9 @@ from custom_components.spa_miser.const import (
     PRICE_SOURCE_OCTOPUS_AGILE,
     PRICE_SOURCE_OCTOPUS_AGILE_PUBLIC,
 )
+from custom_components.spa_miser.price_sources.octopus_agile_public import (
+    PRODUCTS_URL,
+)
 
 BASE_USER_INPUT = {
     CONF_CLIMATE_ENTITY: "climate.balboa_spa",
@@ -74,8 +77,15 @@ async def test_octopus_flow_creates_entry(
 
 
 async def test_octopus_public_flow_creates_entry(
-    hass: HomeAssistant, enable_custom_integrations: None
+    hass: HomeAssistant, enable_custom_integrations: None, aioclient_mock
 ) -> None:
+    # Completing this flow triggers a real config entry setup, which does
+    # an immediate coordinator refresh - without this, the product lookup
+    # hits the real network (api.octopus.energy), which is slow/flaky in CI
+    # and can trip pytest-homeassistant-custom-component's leaked-thread
+    # check if DNS resolution fails oddly in the test environment.
+    aioclient_mock.get(PRODUCTS_URL, status=500)
+
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER}
     )

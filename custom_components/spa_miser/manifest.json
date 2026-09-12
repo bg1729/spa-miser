@@ -1,6 +1,7 @@
 {
   "domain": "spa_miser",
   "name": "Spa Miser",
+  "after_dependencies": ["recorder"],
   "codeowners": ["@bg1729"],
   "config_flow": true,
   "documentation": "https://github.com/bg1729/spa-miser",
