@@ -145,9 +145,14 @@ def compute_strategy(
                 # last below the ceiling. That one slot always gets full
                 # real cost, deliberately not reduced: the model's belief
                 # and the real water temperature can lag each other (fit
-                # error, sensor noise, thermal lag), so it's the real
-                # system's best chance to actually catch up to the model,
-                # not just the model reaching its own target on paper. Once
+                # error, thermal lag, and - see "Known limitations" in the
+                # README - the water temperature sensor itself is only
+                # ever updated while a pump is actually circulating, so
+                # this slot doubles as the only chance to get a fresh real
+                # reading at all, not just to thermally catch up), so it's
+                # the real system's best chance to actually catch up to the
+                # model, not just the model reaching its own target on
+                # paper. Once
                 # the grace is spent, heat_on=True is dropped as an option
                 # entirely for this state rather than merely priced at 0:
                 # a genuinely free (0-cost) branch is still selectable, and

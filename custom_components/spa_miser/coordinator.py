@@ -305,6 +305,12 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
         if self._should_refit():
             await self._async_refit_model()
 
+        # This is only as fresh as the last time water actually flowed
+        # through the heater (the hardware can't read temperature
+        # otherwise) - usually well under an hour given real-world
+        # circulation cycles, occasionally a couple of hours - see "Known
+        # limitations" in the README. The daily strategy anchors its whole
+        # plan to whatever this reads at recompute time regardless.
         current_temp = self._read_state_float(self.entry.data[CONF_WATER_TEMP_SENSOR])
         price_slots = await self.price_source.async_get_forecast(self.hass)
         forecast = await self._async_get_weather_forecast()

@@ -628,6 +628,39 @@ This is entirely optional - if you'd rather just wait for real history to
 accumulate on its own, don't press the button and nothing external is ever
 contacted.
 
+## Known limitations
+
+- **Water temperature isn't measured continuously.** The Balboa hardware
+  only reads it when water is actually flowing through the heater - i.e.
+  while a pump is circulating (heating, filtering, or otherwise running).
+  Between those cycles, `sensor.spa_miser_water_temperature` (and whatever
+  upstream sensor it's reading from) simply holds its last value; it isn't
+  a live continuous feed. Checked against ~3 days of one real tub's actual
+  history: readings cluster into ~80 distinct circulation bursts, with the
+  gap between bursts typically 20-30 minutes or ~2 hours (a regular
+  filtration cycle is visible in the data), occasionally stretching to
+  ~5 hours during quieter periods. So in the common case this is a minor
+  effect, but not always negligible. Two concrete effects on spa-miser's
+  own design:
+  - `history.py`'s hourly aggregation forward-fills the last known reading
+    across hours with no new data point, on the basis that "no update"
+    usually just means "hasn't changed" for a slow-moving sensor (see the
+    comments there) - this happens to be the *structurally correct*
+    interpretation given the above, not merely a reasonable approximation:
+    between pump cycles there genuinely is no new information to have
+    missed.
+  - Each time the daily strategy recomputes, it anchors its plan to
+    whatever `current_temp_c` reads *at that moment* - which, per the
+    above, is usually fresh within the last half hour or so, but can
+    occasionally be a couple of hours old. The one-slot heating "grace" in
+    `strategy.py` (see its comments) - originally motivated by the water
+    temperature and the model's belief being able to lag each other -
+    turns out to be doing double duty here: heating requires pump
+    circulation, which is *also* the only time a fresh, trustworthy
+    reading becomes available at all. So that window is both the real
+    system's chance to thermally catch up to the model, and the
+    only chance to confirm (or correct) the model's belief with real data.
+
 ## Not yet implemented (ideas, not commitments)
 
 - Anticipating planned usage ("warm by 6pm") rather than the comfort window
