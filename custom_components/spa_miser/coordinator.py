@@ -187,22 +187,39 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
             self._unsub_input_ready = None
 
     async def _handle_input_ready(self, event: Event[EventStateChangedData]) -> None:
-        """A configured input entity just reported real data.
+        """A configured input entity just reported new data.
 
-        Most relevant right after a restart: the coordinator's first
-        refresh runs immediately at setup, which can easily race ahead of
-        MQTT-based entities reconnecting (they can take anywhere from
-        seconds to a couple of minutes). Without this, that unlucky first
-        snapshot - sensors reading unknown/unavailable - would otherwise
-        persist until the next scheduled refresh, up to
-        COORDINATOR_UPDATE_INTERVAL_MINUTES (30) later, despite the
-        underlying data actually being ready almost immediately.
+        Two triggers share this handler:
+
+        - Recovery right after restart: the coordinator's first refresh
+          runs immediately at setup, which can easily race ahead of
+          MQTT-based entities reconnecting (they can take anywhere from
+          seconds to a couple of minutes). Without this, that unlucky
+          first snapshot - sensors reading unknown/unavailable - would
+          otherwise persist until the next scheduled refresh, up to
+          COORDINATOR_UPDATE_INTERVAL_MINUTES (30) later, despite the
+          underlying data actually being ready almost immediately.
+        - An ordinary value change while already available (real heating
+          starting, a fresh temperature reading arriving from the next
+          pump-circulation cycle). Without reacting to this too, the
+          mirrored sensors this integration exposes (water_temperature,
+          heating_state, ...) only ever reflect data as fresh as the last
+          scheduled tick - up to 30 minutes stale relative to the real
+          controller, since DataUpdateCoordinator's update_interval is a
+          rolling timer with no fixed relation to wall-clock time.
+
+        Skips a new state that is itself unavailable: that's a source
+        dropping out, not new data, and refreshing into it would just
+        replace a good snapshot with a worse one before the coordinator's
+        own staleness handling has a chance to matter.
         """
         old_state = event.data["old_state"]
         new_state = event.data["new_state"]
+        if new_state is None or new_state.state in UNAVAILABLE_STATES:
+            return
         was_unavailable = old_state is None or old_state.state in UNAVAILABLE_STATES
-        is_now_available = new_state is not None and new_state.state not in UNAVAILABLE_STATES
-        if was_unavailable and is_now_available:
+        value_changed = old_state is not None and old_state.state != new_state.state
+        if was_unavailable or value_changed:
             await self.async_request_refresh()
 
     # --- public control surface used by switch.py / number.py -------------
