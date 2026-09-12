@@ -401,14 +401,21 @@ card:
     label: Now
   yaxis:
     - id: temp
-      # Soft bounds spanning the tub's realistic operating range (still
-      # auto-expands if real data ever goes outside them, e.g. away mode) -
-      # without these, apexcharts-card auto-scales tightly around whatever
-      # narrow range is currently visible, which makes an ordinary ~0.5°C
+      # min is a HARD floor (no "~"), deliberately: Setpoint tracks the
+      # real climate entity's target, which legitimately drops to ~10-26°C
+      # in away mode (Low Range) - a soft bound there would auto-expand the
+      # whole axis downward every time away mode engaged, compressing the
+      # 30-42°C range everything else actually lives in. Below 30°C,
+      # Setpoint (and only Setpoint - nothing else should ever go there)
+      # just clips off the bottom of the chart instead. max stays soft
+      # ("~42"): nothing on this axis has an equivalent reason to blow past
+      # it, so letting it expand if it ever does is fine. Without bounds at
+      # all, apexcharts-card auto-scales tightly around whatever narrow
+      # range is currently visible, which makes an ordinary ~0.5°C
       # fluctuation look like a dramatic swing. decimals: 1 (not 0) so two
       # distinct nearby values (e.g. 37.6 and 38.2) don't round to the same
       # tick label and appear to duplicate.
-      min: "~30"
+      min: 30
       max: "~42"
       decimals: 1
       apex_config:
