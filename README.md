@@ -246,7 +246,7 @@ has no real data yet - most of the time we only have real Agile rates
 through midnight tonight (tomorrow's don't publish until ~4pm), so a chunk
 of that 48h span is often genuinely unknown, and pretending otherwise by
 repeating the last known price is actively wrong, not just uninformative.
-`extend_to: false` on `Planned temperature`/`Price`/`Planned heating` stops
+`extend_to: false` on `Expected temperature`/`Price`/`Planned heating` stops
 each line exactly where its real data ends, leaving the rest of the chart
 blank until the next price update actually extends it - which is also what
 "start a new chart" on each re-plan amounts to in practice: the same
@@ -318,7 +318,7 @@ series:
     show:
       legend_value: false
   - entity: sensor.spa_miser_daily_strategy
-    name: Planned temperature
+    name: Expected temperature
     yaxis_id: temp
     color: "#17becf"
     curve: stepline
