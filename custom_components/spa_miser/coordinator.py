@@ -80,6 +80,12 @@ STRATEGY_RECOMPUTE_COVERAGE_MARGIN_HOURS = 1
 # changes incompatibly - old stores are simply discarded, not migrated,
 # since a fresh strategy just gets recomputed on the next cycle anyway.
 STRATEGY_STORAGE_VERSION = 1
+# How far back a recompute preserves the previous plan's already-elapsed
+# slots (see _async_recompute_strategy) - comfortably more than any
+# reasonable dashboard graph_span, so the chart's "history" never gets
+# wiped by a recompute, while still bounding how far this can grow across
+# many recomputes rather than accumulating forever.
+STRATEGY_HISTORY_RETENTION_HOURS = 48
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -87,6 +93,7 @@ _LOGGER = logging.getLogger(__name__)
 @dataclass
 class SpaMiserData:
     model: ThermalModelParams | None = None
+    last_fit: datetime | None = None
     model_temperature_c: float | None = None
     current_temperature_c: float | None = None
     decision: Decision | None = None
@@ -424,6 +431,7 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
 
         return SpaMiserData(
             model=self._model,
+            last_fit=self._last_fit,
             model_temperature_c=model_temp,
             current_temperature_c=current_temp,
             heating_state=heating_state,
@@ -586,15 +594,16 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
         if self._model is None:
             return
 
+        now = dt_util.utcnow()
         self._heater_power_kw = await history.async_estimate_heater_power_kw(
             self.hass,
             power_entity=self.entry.data[CONF_POWER_ENTITY],
-            start=dt_util.utcnow() - timedelta(days=MODEL_FIT_LOOKBACK_DAYS),
-            end=dt_util.utcnow(),
+            start=now - timedelta(days=MODEL_FIT_LOOKBACK_DAYS),
+            end=now,
         )
 
         strategy = compute_strategy(
-            now=dt_util.utcnow(),
+            now=now,
             current_temp_c=current_temp,
             floor_c=floor,
             ceiling_c=ceiling,
@@ -606,11 +615,32 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
         if strategy is None:
             _LOGGER.warning("Could not compute a daily strategy (insufficient forecast data)")
             return
+
+        # compute_strategy only ever returns slots from `now` forward (see
+        # its own s.end > now filter) - a fresh plan on its own would wipe
+        # out the previous plan's already-elapsed slots, discarding exactly
+        # the portion of the "Expected temperature" chart series that looks
+        # like history. Preserve it by carrying forward the old plan's past
+        # slots rather than just replacing them outright - capped to how
+        # far back any reasonable dashboard would look, so this can't grow
+        # unbounded across many recomputes.
+        retention_cutoff = now - timedelta(hours=STRATEGY_HISTORY_RETENTION_HOURS)
+        preserved_past_slots = (
+            [s for s in self._strategy.slots if retention_cutoff < s.end <= now]
+            if self._strategy is not None
+            else []
+        )
+        strategy = DailyStrategy(
+            computed_at=strategy.computed_at,
+            slots=preserved_past_slots + strategy.slots,
+        )
+
         self._strategy = strategy
         await self._strategy_store.async_save(serialize_strategy(strategy))
         _LOGGER.info(
-            "Computed new daily strategy: %d slots, %d heat-on, heater_power_kw=%.2f",
+            "Computed new daily strategy: %d slots (%d preserved history), %d heat-on, heater_power_kw=%.2f",
             len(strategy.slots),
+            len(preserved_past_slots),
             sum(1 for s in strategy.slots if s.heat_on),
             self._heater_power_kw,
         )

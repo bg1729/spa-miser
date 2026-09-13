@@ -7,6 +7,8 @@ from homeassistant.core import Context, HomeAssistant, ServiceCall, SupportsResp
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.spa_miser.strategy import DailyStrategy, StrategySlot
+
 from custom_components.spa_miser.const import (
     CONF_CLIMATE_ENTITY,
     CONF_ENERGY_ENTITY,
@@ -564,3 +566,80 @@ async def test_strategy_does_not_recompute_before_the_interval_elapses(
 
     assert coordinator.strategy is not None
     assert coordinator.strategy.computed_at == first_strategy.computed_at
+
+
+async def test_model_last_refit_is_exposed_and_tracked(
+    recorder_mock, hass: HomeAssistant, enable_custom_integrations
+):
+    """sensor.spa_miser_model_last_refit both reports model freshness
+    directly and - since HA's recorder keeps history for any sensor
+    automatically - doubles as the data source for the chart's refit
+    marker series, with no separate bookkeeping needed."""
+    # fit_model=False: _last_fit is set unconditionally by the coordinator's
+    # own automatic first-refit attempt (coordinator.py:_async_refit_model),
+    # regardless of whether that attempt found enough real history to
+    # actually produce a model - this isolates testing that automatic path
+    # rather than the test helper's direct model injection.
+    coordinator, _calls = await _setup_coordinator(hass, cheap_now=True, fit_model=False)
+
+    first_fit = coordinator.data.last_fit
+    assert first_fit is not None
+
+    state = hass.states.get("sensor.spa_miser_model_last_refit")
+    assert state is not None
+    assert state.state != "unknown"
+    # HA's timestamp device_class serializes state to whole-second
+    # precision, dropping microseconds - compare at that precision.
+    assert dt_util.parse_datetime(state.state) == first_fit.replace(microsecond=0)
+
+    # A later refit updates both the coordinator's own value and the
+    # entity's state, matching a genuinely new history entry the chart's
+    # marker series can pick up.
+    coordinator._last_fit = None  # forces _should_refit() to fire again
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    assert coordinator.data.last_fit is not None
+    assert coordinator.data.last_fit > first_fit
+    state = hass.states.get("sensor.spa_miser_model_last_refit")
+    assert dt_util.parse_datetime(state.state) == coordinator.data.last_fit.replace(
+        microsecond=0
+    )
+
+
+async def test_recompute_preserves_the_previous_plans_elapsed_slots(
+    recorder_mock, hass: HomeAssistant, enable_custom_integrations
+):
+    """A recompute must not discard the previous plan's already-elapsed
+    slots - compute_strategy itself only ever returns slots from `now`
+    forward, so without this, each recompute (now up to several times a
+    day via strategy_recompute_interval_hours) would wipe whatever the
+    "Expected temperature" chart series had shown as history."""
+    coordinator, _calls = await _setup_coordinator(hass, cheap_now=True)
+    await coordinator.async_set_enabled(True)
+    await hass.async_block_till_done()
+    assert coordinator.strategy is not None
+
+    now = dt_util.utcnow()
+    past_slot = StrategySlot(
+        start=now - timedelta(hours=2),
+        end=now - timedelta(hours=1, minutes=30),
+        price=0.1,
+        planned_temp_c=37.0,
+        heat_on=True,
+    )
+    # Replace with a synthetic plan whose only slot is already in the past,
+    # isolating the merge behaviour from real elapsed time.
+    coordinator._strategy = DailyStrategy(computed_at=now, slots=[past_slot])
+    coordinator._strategy_recompute_interval_hours = 0.0
+
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    assert coordinator.strategy is not None
+    assert past_slot in coordinator.strategy.slots, (
+        "recompute discarded an already-elapsed slot from the previous plan"
+    )
+    assert any(s.end > now for s in coordinator.strategy.slots), (
+        "recompute produced no new forward-looking slots"
+    )

@@ -147,6 +147,7 @@ device page can.
 | `sensor.spa_miser_configured_sources` | Which entity is wired to each role (state = count configured; attributes = the full mapping) |
 | `sensor.spa_miser_price_slots_available` | State = how many price slots the price source returned; `slots` attribute has the whole day's curve (past and future, start/end/price) - independent of whether a strategy has been computed from it |
 | `sensor.spa_miser_loss_coefficient` / `wind_coefficient` / `thermal_mass` / `model_fit_quality` | Fitted thermal model internals - see [Thermal model diagnostics](#example-dashboard) |
+| `sensor.spa_miser_model_last_refit` | When the thermal model coefficients were last refitted - a plain diagnostic ("is my model still fresh"), and since HA's recorder keeps history for any sensor automatically, this entity's own history doubles as a ready-made log of past refit times with no separate bookkeeping - see the "Model refresh" marker series on the example dashboard |
 | `sensor.spa_miser_estimated_water_volume` | Implied tub volume from the fitted thermal mass - a sanity check, not a model input |
 
 ## Example dashboard

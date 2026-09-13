@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -35,7 +36,7 @@ from .thermal_model import estimated_volume_liters
 
 @dataclass(frozen=True, kw_only=True)
 class SpaMiserSensorDescription(SensorEntityDescription):
-    value_fn: Callable[[SpaMiserData], float | str | None] = lambda data: None
+    value_fn: Callable[[SpaMiserData], float | str | datetime | None] = lambda data: None
 
 
 SENSOR_DESCRIPTIONS: tuple[SpaMiserSensorDescription, ...] = (
@@ -180,6 +181,18 @@ SENSOR_DESCRIPTIONS: tuple[SpaMiserSensorDescription, ...] = (
         # only a rendering hint some card types (plain entities-card rows
         # included) don't apply, leaving the raw unrounded float displayed.
         value_fn=lambda d: round(d.model.r_squared, 3) if d.model else None,
+    ),
+    # A plain diagnostic in its own right ("is my model still fresh"), and
+    # - since HA's recorder keeps history for any sensor automatically -
+    # doubles as a ready-made log of past refit times, with no separate
+    # bookkeeping needed: see the "Model refresh" series on the example
+    # dashboard, which reads this sensor's own history as marker points.
+    SpaMiserSensorDescription(
+        key="model_last_refit",
+        translation_key="model_last_refit",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda d: d.last_fit,
     ),
     # Not used by the model itself - a sanity check for the fit as a whole.
     # An implied volume wildly off from the tub's actual rated capacity
