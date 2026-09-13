@@ -643,3 +643,35 @@ async def test_recompute_preserves_the_previous_plans_elapsed_slots(
     assert any(s.end > now for s in coordinator.strategy.slots), (
         "recompute produced no new forward-looking slots"
     )
+
+
+async def test_slot_boundary_trigger_is_registered_on_setup(
+    recorder_mock, hass: HomeAssistant, enable_custom_integrations
+):
+    """Price/strategy slots sit on a wall-clock 30-minute grid, but
+    update_interval is a rolling timer with no fixed relation to wall-clock
+    time - without a dedicated :00/:30 trigger, a new slot's setpoint could
+    apply anywhere from immediately to nearly 30 minutes late."""
+    coordinator, _calls = await _setup_coordinator(hass, cheap_now=True)
+    assert coordinator._unsub_slot_boundary is not None
+
+
+async def test_slot_boundary_requests_a_refresh(
+    recorder_mock, hass: HomeAssistant, enable_custom_integrations
+):
+    coordinator, _calls = await _setup_coordinator(hass, cheap_now=True)
+    await coordinator.async_set_enabled(True)
+    await hass.async_block_till_done()
+
+    calls = []
+    original = coordinator.async_request_refresh
+
+    async def _spy():
+        calls.append(True)
+        await original()
+
+    coordinator.async_request_refresh = _spy
+
+    await coordinator._handle_slot_boundary(dt_util.utcnow())
+
+    assert calls, "slot boundary firing did not request a refresh"

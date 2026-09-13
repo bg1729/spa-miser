@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant
-from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.event import async_track_state_change_event, async_track_time_change
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
@@ -200,6 +200,7 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
         self._energy_day: date | None = None
         self._energy_baseline_kwh: float | None = None
         self._unsub_input_ready = None
+        self._unsub_slot_boundary = None
 
     async def async_setup(self) -> None:
         self.spa_control.async_setup()
@@ -216,7 +217,21 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
         self._unsub_input_ready = async_track_state_change_event(
             self.hass, input_entities, self._handle_input_ready
         )
+        # Price/strategy slots sit on a wall-clock 30-minute grid (:00/:30),
+        # but update_interval below is a rolling timer with no fixed relation
+        # to wall-clock time - left to its own devices, the setpoint for a
+        # new slot could apply anywhere from immediately to nearly 30 minutes
+        # into that slot, undermining the whole point of planning around
+        # half-hourly prices. This fires a refresh right at each boundary so
+        # _decide()/_async_apply_control pick up the new slot within seconds,
+        # not whenever the rolling timer's phase happens to next land.
+        self._unsub_slot_boundary = async_track_time_change(
+            self.hass, self._handle_slot_boundary, minute=[0, 30], second=0
+        )
         await self._async_load_persisted_strategy()
+
+    async def _handle_slot_boundary(self, now: datetime) -> None:
+        await self.async_request_refresh()
 
     async def _async_load_persisted_strategy(self) -> None:
         """Restore the committed plan across a restart, before the first
@@ -240,6 +255,9 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
         if self._unsub_input_ready is not None:
             self._unsub_input_ready()
             self._unsub_input_ready = None
+        if self._unsub_slot_boundary is not None:
+            self._unsub_slot_boundary()
+            self._unsub_slot_boundary = None
 
     async def _handle_input_ready(self, event: Event[EventStateChangedData]) -> None:
         """A configured input entity just reported new data.

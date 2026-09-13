@@ -135,9 +135,11 @@ async def test_strategy_is_restored_across_a_simulated_restart(
     # what __init__.py does before the first refresh on real startup.
     restarted = SpaMiserCoordinator(hass, entry)
     await restarted.async_setup()
-
-    assert restarted.strategy is not None
-    assert restarted.strategy == original
+    try:
+        assert restarted.strategy is not None
+        assert restarted.strategy == original
+    finally:
+        restarted.async_unload()
 
 
 async def test_a_restored_but_expired_strategy_still_triggers_recompute(
@@ -164,13 +166,16 @@ async def test_a_restored_but_expired_strategy_still_triggers_recompute(
         },
     }
     await restarted.async_setup()
-    assert restarted.strategy is not None
-    assert restarted.strategy.end is not None
-    assert restarted.strategy.end < dt_util.utcnow()  # confirmed stale before refreshing
+    try:
+        assert restarted.strategy is not None
+        assert restarted.strategy.end is not None
+        assert restarted.strategy.end < dt_util.utcnow()  # confirmed stale before refreshing
 
-    restarted._model = MODEL
-    await restarted.async_refresh()
-    await hass.async_block_till_done()
+        restarted._model = MODEL
+        await restarted.async_refresh()
+        await hass.async_block_till_done()
 
-    assert restarted.strategy is not None
-    assert restarted.strategy.end > dt_util.utcnow()  # recomputed to a current plan
+        assert restarted.strategy is not None
+        assert restarted.strategy.end > dt_util.utcnow()  # recomputed to a current plan
+    finally:
+        restarted.async_unload()

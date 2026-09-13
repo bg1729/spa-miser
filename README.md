@@ -592,6 +592,13 @@ it was computed - live-observed drift from forecast error alone reached
 ~0.5°C over one overnight period before the next day's rates would
 otherwise have forced a refresh.
 
+The plan's slots sit on a wall-clock 30-minute grid (`:00`/`:30`), and a
+dedicated refresh fires right at each boundary so the setpoint for a new
+slot applies within seconds of it starting - it doesn't wait on the
+general 30-minute polling cycle, which has no fixed relation to wall-clock
+time and could otherwise apply a new slot's setpoint anywhere up to ~30
+minutes late.
+
 **Fallback path - a greedy heuristic**, used only when no plan is available
 yet (e.g. before the first successful model fit): simulate a pure coast-down
 from the current temperature to find when the floor would be breached, and
