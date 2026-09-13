@@ -136,7 +136,7 @@ device page can.
 | `sensor.spa_miser_decision_reason` | Why the current recommendation was made |
 | `sensor.spa_miser_control_status` | Whether spa-miser can actually act right now: `Disabled`, `Paused (manual override)`, `Unavailable`, `Not ready yet`, or `Active` - in particular, a manual-override pause (see `manual_override_minutes`) is otherwise invisible from every other entity, since it looks identical to "nothing to do right now". `override_until` attribute has the resume time when paused. |
 | `sensor.spa_miser_current_price` | Current price (p/kWh) from whichever price source is configured - populates immediately, doesn't need the model |
-| `sensor.spa_miser_daily_strategy` | The committed 24h plan: state is when it was last computed, `slots` attribute has the planned temperature/price/heat-on per slot (see [Example dashboard](#example-dashboard)) |
+| `sensor.spa_miser_daily_strategy` | The committed heating strategy: state is when it was last computed, `slots` attribute has the planned temperature/price/heat-on per slot (see [Example dashboard](#example-dashboard)) - despite the entity name, it's no longer strictly "daily": see `strategy_recompute_interval_hours` below |
 | `sensor.spa_miser_active_range` | Which hardware preset is actually in force right now (`High Range` / `Low Range`) and why - `reason` attribute is `Normal`, `Away mode`, or `Price cap exceeded` |
 
 **Diagnostic (collapsed by default on the device page):**
@@ -574,7 +574,7 @@ card:
 
 ## How it decides
 
-**Primary path - the daily strategy.** Once new price data arrives (Octopus
+**Primary path - the heating strategy.** Once new price data arrives (Octopus
 Agile publishes tomorrow's rates ~4pm; the manual source just rolls over
 daily), Spa Miser refits the thermal model, then computes a plan covering
 the available forecast: a dynamic-programming search over discretized
@@ -674,7 +674,7 @@ contacted.
     interpretation given the above, not merely a reasonable approximation:
     between pump cycles there genuinely is no new information to have
     missed.
-  - Each time the daily strategy recomputes, it anchors its plan to
+  - Each time the heating strategy recomputes, it anchors its plan to
     whatever `current_temp_c` reads *at that moment* - which, per the
     above, is usually fresh within the last half hour or so, but can
     occasionally be a couple of hours old. The one-slot heating "grace" in

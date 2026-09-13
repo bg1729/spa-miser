@@ -539,7 +539,7 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
                 action = "heat" if slot.heat_on else "coast"
                 return Decision(
                     heat_recommended=slot.heat_on,
-                    reason=f"daily strategy: {action} (plan targets {slot.planned_temp_c:.1f}°C)",
+                    reason=f"heating strategy: {action} (plan targets {slot.planned_temp_c:.1f}°C)",
                     floor_breach_hours=None,
                     cheap_price_threshold=None,
                     current_price=slot.price,

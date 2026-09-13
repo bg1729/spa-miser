@@ -312,6 +312,13 @@ class DailyStrategySensor(SpaMiserEntity, SensorEntity):
         super().__init__(coordinator, "daily_strategy")
 
     @property
+    def suggested_object_id(self) -> str:
+        # Keeps entity_id as sensor.spa_miser_daily_strategy regardless of
+        # the friendly name shown to the user (see the "Heating strategy"
+        # rename) - same reasoning as SpaMiserSensor/PriceForecastSensor.
+        return "daily_strategy"
+
+    @property
     def native_value(self):
         strategy = self.coordinator.strategy
         return strategy.computed_at if strategy else None
