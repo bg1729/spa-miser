@@ -98,13 +98,29 @@ class OctopusAgilePublicPriceSource(PriceSource):
 
         now = dt_util.utcnow()
         url = RATES_URL_TEMPLATE.format(product_code=product_code, region=self._region)
-        # From the start of today, not from "now": Agile rates are fixed once
-        # published (never revised), so today's already-elapsed slots are
-        # just as much "the price" as the future ones - callers (charting in
-        # particular) shouldn't have to reconstruct them from recorder
-        # history. Decision-making code separately filters to s.end > now
-        # wherever only the remaining window matters.
-        period_from = dt_util.as_utc(dt_util.start_of_local_day(now))
+        # From 2 local days ago, not from "now" or even just "today": Agile
+        # rates are fixed once published (never revised), so past slots are
+        # just as much "the price" as future ones - callers (charting in
+        # particular, which looks back further than "today" once graph_span
+        # extends past local midnight) shouldn't have to reconstruct them
+        # from our own recorder history, which can have real gaps (a HA/
+        # spa-miser restart, an earlier outage) the authoritative published
+        # rates don't. Decision-making code separately filters to
+        # s.end > now wherever only the remaining window matters, so
+        # returning extra history here doesn't affect any of it - 2 days is
+        # comfortably more than any reasonable dashboard span needs, and
+        # RATES_PAGE_SIZE already has headroom for the extra slots.
+        #
+        # dt_util.start_of_local_day() takes .date() of whatever's passed
+        # in *without* converting to local time first - correct only if
+        # the input is already local. Passing the raw UTC `now` gives the
+        # UTC calendar date mislabelled with local tzinfo, silently wrong
+        # for however much of the day UTC and local dates disagree (up to
+        # several hours, depending on the configured timezone's offset) -
+        # as_local() first is required to get the real local calendar day.
+        period_from = dt_util.as_utc(
+            dt_util.start_of_local_day(dt_util.as_local(now)) - timedelta(days=2)
+        )
         params = {
             "period_from": period_from.isoformat(),
             "period_to": (now + timedelta(hours=FORECAST_HOURS)).isoformat(),

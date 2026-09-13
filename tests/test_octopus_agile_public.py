@@ -1,6 +1,10 @@
 """Tests for the public-API Octopus Agile price source (no account needed)."""
 from __future__ import annotations
 
+from datetime import timedelta
+
+from homeassistant.util import dt as dt_util
+
 from custom_components.spa_miser.price_sources.octopus_agile_public import (
     PRODUCTS_URL,
     OctopusAgilePublicPriceSource,
@@ -46,6 +50,7 @@ async def test_fetches_rates_for_the_latest_active_agile_product(hass, aioclient
 
     source = OctopusAgilePublicPriceSource(region="e")  # lowercase, should uppercase
 
+    before = dt_util.utcnow()
     slots = await source.async_get_forecast(hass)
     await hass.async_block_till_done()
 
@@ -53,6 +58,16 @@ async def test_fetches_rates_for_the_latest_active_agile_product(hass, aioclient
     assert slots[0].price == 0.155  # pence -> pounds
     assert slots[1].price == -0.032
     assert aioclient_mock.call_count == 2
+
+    rates_call = next(c for c in aioclient_mock.mock_calls if rates_url in str(c[1]))
+    period_from = dt_util.parse_datetime(rates_call[1].query["period_from"])
+    assert period_from is not None
+    assert dt_util.as_local(period_from).date() == dt_util.as_local(before).date() - timedelta(
+        days=2
+    ), (
+        "chart/dashboard rely on this reaching back far enough to show "
+        "yesterday's prices even right after local midnight"
+    )
 
 
 async def test_excludes_agile_outgoing_and_other_non_import_products(hass, aioclient_mock):
