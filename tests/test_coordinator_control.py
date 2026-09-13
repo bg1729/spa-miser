@@ -521,3 +521,46 @@ async def test_model_temperature_predicts_heating_toward_the_away_floor(
     assert coordinator.data.model_temperature_c <= 30.0 + 0.01, (
         "predicted heating above the away floor"
     )
+
+
+async def test_strategy_recomputes_once_the_configured_interval_elapses(
+    recorder_mock, hass: HomeAssistant, enable_custom_integrations
+):
+    """A plan's ambient/wind assumptions are only as fresh as the forecast
+    available when it was computed - strategy_recompute_interval_hours
+    bounds how long that can go uncorrected, independent of whether the
+    plan's own coverage has run out or new price data has arrived."""
+    coordinator, _calls = await _setup_coordinator(hass, cheap_now=True)
+    await coordinator.async_set_enabled(True)
+    await hass.async_block_till_done()
+    first_strategy = coordinator.strategy
+    assert first_strategy is not None
+
+    # Neither the plan's coverage nor the price forecast have changed -
+    # only the configured interval has elapsed (simulated directly rather
+    # than waiting in real time).
+    coordinator._strategy_recompute_interval_hours = 0.0
+
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    assert coordinator.strategy is not None
+    assert coordinator.strategy.computed_at > first_strategy.computed_at
+
+
+async def test_strategy_does_not_recompute_before_the_interval_elapses(
+    recorder_mock, hass: HomeAssistant, enable_custom_integrations
+):
+    coordinator, _calls = await _setup_coordinator(hass, cheap_now=True)
+    await coordinator.async_set_enabled(True)
+    await hass.async_block_till_done()
+    first_strategy = coordinator.strategy
+    assert first_strategy is not None
+
+    # Default interval (6h) - nowhere near elapsed a moment later, and
+    # nothing else about coverage/price has changed either.
+    await coordinator.async_refresh()
+    await hass.async_block_till_done()
+
+    assert coordinator.strategy is not None
+    assert coordinator.strategy.computed_at == first_strategy.computed_at

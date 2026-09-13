@@ -71,6 +71,13 @@ CONF_MAX_COMFORT_TEMP = "max_comfort_temp"
 CONF_MIN_COMFORT_TEMP = "min_comfort_temp"
 CONF_MIN_AWAY_TEMP = "min_away_temp"
 CONF_MANUAL_OVERRIDE_MINUTES = "manual_override_minutes"
+# Upper bound on how long the committed daily strategy can go unrevised -
+# see coordinator._should_recompute_strategy. Independent of (and in
+# addition to) the "new price data published" trigger, which alone can
+# leave a plan's ambient/wind assumptions stale for up to a full day
+# (observed live: up to ~0.5C of drift overnight from forecast error
+# alone) before the next day's rates force a refresh.
+CONF_STRATEGY_RECOMPUTE_INTERVAL_HOURS = "strategy_recompute_interval_hours"
 # Runtime-adjustable switch state, also persisted to config entry options so
 # it survives a restart.
 CONF_ENABLED = "enabled"
@@ -96,6 +103,7 @@ DEFAULT_MAX_COMFORT_TEMP = 40.0
 DEFAULT_MIN_COMFORT_TEMP = 36.0
 DEFAULT_MIN_AWAY_TEMP = 25.0
 DEFAULT_MANUAL_OVERRIDE_MINUTES = 120
+DEFAULT_STRATEGY_RECOMPUTE_INTERVAL_HOURS = 6
 
 # 40.0C (104F) is the standard safety ceiling on Balboa spa systems (and
 # hot tubs generally, per ANSI/APSP) - verified directly against a real

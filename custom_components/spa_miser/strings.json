@@ -17,6 +17,7 @@
           "min_comfort_temp": "Min comfort temperature",
           "min_away_temp": "Min (away) temperature",
           "manual_override_minutes": "Pause after a manual change (minutes)",
+          "strategy_recompute_interval_hours": "Recompute the daily plan at least every (hours)",
           "price_source": "Price source"
         }
       },

@@ -32,6 +32,7 @@ from .const import (
     CONF_OUTDOOR_TEMP_SENSOR,
     CONF_POWER_ENTITY,
     CONF_PRICE_SOURCE,
+    CONF_STRATEGY_RECOMPUTE_INTERVAL_HOURS,
     CONF_WATER_TEMP_SENSOR,
     CONF_WEATHER_ENTITY,
     CONF_WIND_SPEED_SENSOR,
@@ -42,6 +43,7 @@ from .const import (
     DEFAULT_MAX_COMFORT_TEMP,
     DEFAULT_MIN_AWAY_TEMP,
     DEFAULT_MIN_COMFORT_TEMP,
+    DEFAULT_STRATEGY_RECOMPUTE_INTERVAL_HOURS,
     DOMAIN,
     OCTOPUS_REGIONS,
     PRICE_SOURCE_MANUAL,
@@ -98,6 +100,12 @@ STEP_USER_SCHEMA = vol.Schema(
             CONF_MANUAL_OVERRIDE_MINUTES, default=DEFAULT_MANUAL_OVERRIDE_MINUTES
         ): selector.NumberSelector(
             selector.NumberSelectorConfig(min=0, max=1440, step=15, unit_of_measurement="min")
+        ),
+        vol.Required(
+            CONF_STRATEGY_RECOMPUTE_INTERVAL_HOURS,
+            default=DEFAULT_STRATEGY_RECOMPUTE_INTERVAL_HOURS,
+        ): selector.NumberSelector(
+            selector.NumberSelectorConfig(min=1, max=24, step=1, unit_of_measurement="h")
         ),
         vol.Required(CONF_PRICE_SOURCE, default=PRICE_SOURCE_OCTOPUS_AGILE): selector.SelectSelector(
             selector.SelectSelectorConfig(

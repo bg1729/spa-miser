@@ -32,6 +32,7 @@ from .const import (
     CONF_OUTDOOR_TEMP_SENSOR,
     CONF_POWER_ENTITY,
     CONF_PRICE_SOURCE,
+    CONF_STRATEGY_RECOMPUTE_INTERVAL_HOURS,
     CONF_WATER_TEMP_SENSOR,
     CONF_WEATHER_BACKFILL_ENABLED,
     CONF_WEATHER_ENTITY,
@@ -49,6 +50,7 @@ from .const import (
     DEFAULT_MAX_PRICE,
     DEFAULT_MIN_AWAY_TEMP,
     DEFAULT_MIN_COMFORT_TEMP,
+    DEFAULT_STRATEGY_RECOMPUTE_INTERVAL_HOURS,
     DOMAIN,
     HEATING_STATE_ACTIVE_VALUES,
     MODEL_FIT_LOOKBACK_DAYS,
@@ -157,6 +159,10 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
         # so multiple spa-miser instances wouldn't collide.
         self._strategy_store: Store = Store(
             hass, STRATEGY_STORAGE_VERSION, f"{DOMAIN}_{entry.entry_id}_daily_strategy"
+        )
+        self._strategy_recompute_interval_hours: float = entry.data.get(
+            CONF_STRATEGY_RECOMPUTE_INTERVAL_HOURS,
+            DEFAULT_STRATEGY_RECOMPUTE_INTERVAL_HOURS,
         )
 
         self._enabled: bool = entry.options.get(CONF_ENABLED, DEFAULT_ENABLED)
@@ -551,6 +557,15 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
         strategy_end = self._strategy.end
         if strategy_end is None or now >= strategy_end:
             return True  # the committed plan no longer covers "now"
+        # A plan's ambient/wind assumptions are only as good as the forecast
+        # available when it was computed - the "new price data" trigger
+        # below alone can leave that stale for up to a full day (observed
+        # live: up to ~0.5C of overnight drift from forecast error alone)
+        # before the next day's rates force a refresh. This bounds the
+        # worst case independent of price-source publishing cadence.
+        recompute_interval = timedelta(hours=self._strategy_recompute_interval_hours)
+        if now - self._strategy.computed_at >= recompute_interval:
+            return True
         latest_price_end = max(s.end for s in price_slots)
         margin = timedelta(hours=STRATEGY_RECOMPUTE_COVERAGE_MARGIN_HOURS)
         return latest_price_end > strategy_end + margin

@@ -582,8 +582,14 @@ constrained to never drop below the comfort floor and never exceed the
 ceiling (the spa's own thermostat wouldn't overshoot it anyway). Negative
 prices are naturally preferred - minimizing signed cost already rewards
 consuming during them, no special-casing needed. That plan is then held
-fixed and followed until the next price update or comfort-window change
-triggers a recompute (see `sensor.spa_miser_daily_strategy`).
+fixed and followed until new price data arrives, the plan's own coverage
+runs out, or `strategy_recompute_interval_hours` (default 6) elapses since
+it was last computed - whichever comes first (see
+`sensor.spa_miser_daily_strategy`). That last one exists because a plan's
+ambient/wind assumptions are only as fresh as the forecast available when
+it was computed - live-observed drift from forecast error alone reached
+~0.5°C over one overnight period before the next day's rates would
+otherwise have forced a refresh.
 
 **Fallback path - a greedy heuristic**, used only when no plan is available
 yet (e.g. before the first successful model fit): simulate a pure coast-down

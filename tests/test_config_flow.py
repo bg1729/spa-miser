@@ -20,8 +20,10 @@ from custom_components.spa_miser.const import (
     CONF_OCTOPUS_REGION,
     CONF_POWER_ENTITY,
     CONF_PRICE_SOURCE,
+    CONF_STRATEGY_RECOMPUTE_INTERVAL_HOURS,
     CONF_WATER_TEMP_SENSOR,
     CONF_WEATHER_ENTITY,
+    DEFAULT_STRATEGY_RECOMPUTE_INTERVAL_HOURS,
     DOMAIN,
     PRICE_SOURCE_MANUAL,
     PRICE_SOURCE_OCTOPUS_AGILE,
@@ -73,6 +75,11 @@ async def test_octopus_flow_creates_entry(
     assert (
         result["data"][CONF_OCTOPUS_CURRENT_DAY_RATES_ENTITY]
         == "event.octopus_energy_electricity_1234_5678_current_day_rates"
+    )
+    # Omitted from BASE_USER_INPUT - the schema's own default should apply.
+    assert (
+        result["data"][CONF_STRATEGY_RECOMPUTE_INTERVAL_HOURS]
+        == DEFAULT_STRATEGY_RECOMPUTE_INTERVAL_HOURS
     )
 
 
@@ -173,3 +180,30 @@ async def test_reconfigure_switches_price_source_without_a_new_entry(
     assert entries[0].data[CONF_OCTOPUS_REGION] == "E"
     # Stale manual-price fields from before the switch must not linger.
     assert CONF_MANUAL_CHEAP_HOURS not in entries[0].data
+
+
+async def test_strategy_recompute_interval_can_be_overridden(
+    hass: HomeAssistant, enable_custom_integrations: None
+) -> None:
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            **BASE_USER_INPUT,
+            CONF_STRATEGY_RECOMPUTE_INTERVAL_HOURS: 12,
+            CONF_PRICE_SOURCE: PRICE_SOURCE_MANUAL,
+        },
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            "manual_cheap_hours": ["0", "1", "2", "3", "4", "5"],
+            "manual_cheap_rate": 0.10,
+            "manual_standard_rate": 0.30,
+        },
+    )
+
+    assert result["type"] == "create_entry"
+    assert result["data"][CONF_STRATEGY_RECOMPUTE_INTERVAL_HOURS] == 12
