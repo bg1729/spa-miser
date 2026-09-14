@@ -145,6 +145,15 @@ MODEL_REFIT_INTERVAL_HOURS = 24
 MODEL_FIT_LOOKBACK_DAYS = 21
 DECISION_LOOKAHEAD_HOURS = 36
 
+# --- Forecast sanity bounds ---
+# A single bad forecast data point (bad upstream API response, a stray
+# unit mismatch, ...) feeds straight into the thermal model's simulated
+# trajectory with no other validation - wide enough to never reject a real
+# UK weather forecast, narrow enough to catch garbage (e.g. a Fahrenheit
+# value slipping through unconverted: 78.5 has been observed in practice).
+MIN_PLAUSIBLE_AMBIENT_TEMP_C = -20.0
+MAX_PLAUSIBLE_AMBIENT_TEMP_C = 45.0
+
 # --- Entity unique_id suffixes ---
 ATTR_MODEL_TEMPERATURE = "model_temperature"
 ATTR_LOSS_COEFFICIENT = "loss_coefficient"

@@ -693,6 +693,22 @@ contacted.
     system's chance to thermally catch up to the model, and the
     only chance to confirm (or correct) the model's belief with real data.
 
+- **A single bad forecast data point can distort one slot's plan.**
+  `weather.get_forecasts` responses aren't otherwise validated - a
+  Fahrenheit-scaled value has been observed slipping through unconverted
+  from the upstream weather integration (~78°C for what was actually a
+  normal ~22°C September afternoon), which fed straight into the thermal
+  model and showed up as a brief, physically-impossible uptick in the
+  "Expected temperature" chart series during a coast period. Forecast
+  points outside a plausible range (`MIN_PLAUSIBLE_AMBIENT_TEMP_C`/
+  `MAX_PLAUSIBLE_AMBIENT_TEMP_C` in `const.py`, currently -20°C to 45°C)
+  are now dropped with a logged warning instead of being used. Every
+  strategy recompute also logs its full inputs (current temp, comfort
+  bounds, fitted model coefficients, heater power estimate, and every
+  forecast point used) at `info` level unconditionally - recomputes only
+  happen a handful of times a day, so this is a few KB/day at most, nowhere
+  near a disk-space concern.
+
 - **`actual_kwh_today` and `cost_saved_today` measure the whole spa, not
   just heating.** The configured `energy_entity`/`power_entity` are
   typically a single whole-circuit meter (e.g. a Shelly EM clamp on the

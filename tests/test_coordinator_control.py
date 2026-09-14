@@ -675,3 +675,72 @@ async def test_slot_boundary_requests_a_refresh(
     await coordinator._handle_slot_boundary(dt_util.utcnow())
 
     assert calls, "slot boundary firing did not request a refresh"
+
+
+async def test_implausible_forecast_points_are_dropped(
+    recorder_mock, hass: HomeAssistant, enable_custom_integrations, caplog
+):
+    """A single bad upstream forecast value (observed in practice: a
+    Fahrenheit-scaled temperature slipping through unconverted, ~78C) must
+    not feed straight into the thermal model with no sanity check."""
+    coordinator, _calls = await _setup_coordinator(hass, cheap_now=True)
+
+    now = dt_util.utcnow()
+
+    async def _bad_forecast_handler(call: ServiceCall):
+        return {
+            "weather.home": {
+                "forecast": [
+                    {
+                        "datetime": (now + timedelta(hours=1)).isoformat(),
+                        "temperature": 18.0,
+                        "wind_speed": 2.0,
+                    },
+                    {
+                        # The exact kind of garbage value that motivated this
+                        # check - implausible for any real UK forecast.
+                        "datetime": (now + timedelta(hours=2)).isoformat(),
+                        "temperature": 78.5,
+                        "wind_speed": 2.0,
+                    },
+                    {
+                        "datetime": (now + timedelta(hours=3)).isoformat(),
+                        "temperature": -55.0,
+                        "wind_speed": 2.0,
+                    },
+                    {
+                        "datetime": (now + timedelta(hours=4)).isoformat(),
+                        "temperature": 12.0,
+                        "wind_speed": 2.0,
+                    },
+                ]
+            }
+        }
+
+    hass.services.async_register(
+        "weather", "get_forecasts", _bad_forecast_handler, supports_response=SupportsResponse.ONLY
+    )
+
+    with caplog.at_level("WARNING"):
+        points = await coordinator._async_get_weather_forecast()
+
+    assert [p.ambient_temp_c for p in points] == [18.0, 12.0]
+    assert "implausible" in caplog.text
+    assert "78.5" in caplog.text
+
+
+async def test_recompute_logs_its_inputs(
+    recorder_mock, hass: HomeAssistant, enable_custom_integrations, caplog
+):
+    """Enough detail to diagnose a bad recompute after the fact (e.g. the
+    implausible-forecast case above) without needing debug logging
+    pre-emptively enabled before it happens."""
+    coordinator, _calls = await _setup_coordinator(hass, cheap_now=True)
+
+    with caplog.at_level("INFO"):
+        await coordinator.async_set_enabled(True)
+        await hass.async_block_till_done()
+
+    assert "Recomputing strategy" in caplog.text
+    assert "model(loss=" in caplog.text
+    assert "forecast=" in caplog.text

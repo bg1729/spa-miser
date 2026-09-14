@@ -53,6 +53,8 @@ from .const import (
     DEFAULT_STRATEGY_RECOMPUTE_INTERVAL_HOURS,
     DOMAIN,
     HEATING_STATE_ACTIVE_VALUES,
+    MAX_PLAUSIBLE_AMBIENT_TEMP_C,
+    MIN_PLAUSIBLE_AMBIENT_TEMP_C,
     MODEL_FIT_LOOKBACK_DAYS,
     MODEL_REFIT_INTERVAL_HOURS,
     PRESET_HIGH_RANGE,
@@ -620,6 +622,38 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
             end=now,
         )
 
+        # Full snapshot of every input compute_strategy is about to see -
+        # logged unconditionally (not gated behind debug) so a bad input
+        # (e.g. a corrupt forecast point) is diagnosable after the fact
+        # without having needed to pre-emptively raise log verbosity before
+        # it happened. Cheap to keep: recomputes only happen a handful of
+        # times a day (see _should_recompute_strategy), so this adds at most
+        # a few KB/day to the log - see the README for why that's not a
+        # disk-space concern.
+        _LOGGER.info(
+            "Recomputing strategy: current_temp=%.2f floor=%.2f ceiling=%.2f "
+            "model(loss=%.4f wind=%.6f input=%.4f thermal_mass=%s r2=%.3f n=%d) "
+            "heater_power_kw=%.3f price_slots=%d[%s..%s] forecast=%d points[%s]",
+            current_temp,
+            floor,
+            ceiling,
+            self._model.loss_coefficient,
+            self._model.wind_coefficient,
+            self._model.input_coefficient,
+            self._model.thermal_mass_kwh_per_c,
+            self._model.r_squared,
+            self._model.n_samples,
+            self._heater_power_kw,
+            len(price_slots),
+            price_slots[0].start.isoformat() if price_slots else "-",
+            price_slots[-1].end.isoformat() if price_slots else "-",
+            len(forecast),
+            ", ".join(
+                f"{p.at.strftime('%H:%M')}={p.ambient_temp_c:.1f}C/{p.wind_speed_ms:.1f}m/s"
+                for p in forecast
+            ),
+        )
+
         strategy = compute_strategy(
             now=now,
             current_temp_c=current_temp,
@@ -739,10 +773,25 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
             wind = item.get("wind_speed", 0.0)
             if at is None or temp is None:
                 continue
-            points.append(
-                ForecastPoint(
-                    at=at, ambient_temp_c=float(temp), wind_speed_ms=float(wind or 0.0)
+            temp = float(temp)
+            # A single bad upstream data point (observed in practice: a
+            # Fahrenheit-scaled value slipping through unconverted, giving
+            # ~78C) feeds straight into predict_trajectory with no other
+            # validation - drop it rather than let it silently distort the
+            # simulated trajectory for whichever slot it lands on.
+            if not (MIN_PLAUSIBLE_AMBIENT_TEMP_C <= temp <= MAX_PLAUSIBLE_AMBIENT_TEMP_C):
+                _LOGGER.warning(
+                    "Ignoring implausible forecast point from %s at %s: "
+                    "temperature=%.1f (outside plausible range %.0f..%.0f)",
+                    weather_entity,
+                    at,
+                    temp,
+                    MIN_PLAUSIBLE_AMBIENT_TEMP_C,
+                    MAX_PLAUSIBLE_AMBIENT_TEMP_C,
                 )
+                continue
+            points.append(
+                ForecastPoint(at=at, ambient_temp_c=temp, wind_speed_ms=float(wind or 0.0))
             )
         return points
 
