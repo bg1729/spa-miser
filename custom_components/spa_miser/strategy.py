@@ -59,8 +59,11 @@ class DailyStrategy:
 
 
 def serialize_strategy(strategy: DailyStrategy) -> dict:
-    """JSON-compatible form for sensor.spa_miser_daily_strategy's
-    attributes and for persisting across restarts (see coordinator.py)."""
+    """JSON-compatible form for persisting across restarts (see
+    coordinator.py's Store usage). This exact shape must stay stable so
+    deserialize_strategy can keep reading what's already on disk - use
+    slots_for_display for sensor.spa_miser_daily_strategy's attributes
+    instead, which is free to change shape since it's never read back."""
     return {
         "computed_at": strategy.computed_at.isoformat(),
         "slots": [
@@ -73,6 +76,32 @@ def serialize_strategy(strategy: DailyStrategy) -> dict:
             }
             for slot in strategy.slots
         ],
+    }
+
+
+def slots_for_display(strategy: DailyStrategy) -> dict[str, list]:
+    """Compact columnar form of the plan for sensor.spa_miser_daily_strategy's
+    `slots` attribute - NOT used for Store persistence (see
+    serialize_strategy above for that, which must stay byte-for-byte
+    readable by deserialize_strategy across restarts).
+
+    A list of per-slot objects repeats every key name once per slot; with
+    up to ~36h of forecast plus 48h of preserved history at 30-minute
+    resolution, that pushed past HA recorder's 16KB-per-attribute limit
+    (the recorder just silently stops storing history for the attribute
+    past that point - it doesn't affect the live dashboard, which reads
+    current state directly, but it's still wasted size). Parallel arrays
+    pay each key name once for the whole attribute instead of once per
+    slot, plus epoch-second integers and rounded floats instead of ISO
+    strings and full float precision - same information, roughly half the
+    bytes or better.
+    """
+    return {
+        "start": [int(slot.start.timestamp()) for slot in strategy.slots],
+        "end": [int(slot.end.timestamp()) for slot in strategy.slots],
+        "price": [round(slot.price, 4) for slot in strategy.slots],
+        "planned_temp_c": [round(slot.planned_temp_c, 2) for slot in strategy.slots],
+        "heat_on": [1 if slot.heat_on else 0 for slot in strategy.slots],
     }
 
 

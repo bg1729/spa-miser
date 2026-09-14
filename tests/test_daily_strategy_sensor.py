@@ -106,9 +106,14 @@ async def test_daily_strategy_sensor_reflects_the_computed_plan(
     assert state is not None
     assert state.state != "unknown"  # computed_at should be set
 
+    # Columnar (parallel arrays), not a list of per-slot objects - see
+    # strategy.slots_for_display for why (fits under the recorder's
+    # 16KB-per-attribute limit that the old per-slot-object shape hit).
     slots = state.attributes["slots"]
-    assert len(slots) == len(coordinator.strategy.slots)
-    assert slots[0]["start"] == coordinator.strategy.slots[0].start.isoformat()
-    assert slots[0]["price"] == coordinator.strategy.slots[0].price
-    assert isinstance(slots[0]["heat_on"], bool)
-    assert isinstance(slots[0]["planned_temp_c"], float)
+    first_slot = coordinator.strategy.slots[0]
+    assert len(slots["start"]) == len(coordinator.strategy.slots)
+    assert slots["start"][0] == int(first_slot.start.timestamp())
+    assert slots["end"][0] == int(first_slot.end.timestamp())
+    assert slots["price"][0] == round(first_slot.price, 4)
+    assert slots["heat_on"][0] in (0, 1)
+    assert isinstance(slots["planned_temp_c"][0], float)

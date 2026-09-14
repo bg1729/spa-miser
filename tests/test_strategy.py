@@ -9,6 +9,7 @@ from custom_components.spa_miser.strategy import (
     compute_strategy,
     deserialize_strategy,
     serialize_strategy,
+    slots_for_display,
 )
 from custom_components.spa_miser.thermal_model import ThermalModelParams
 
@@ -240,6 +241,42 @@ def test_serialize_then_deserialize_round_trips_to_an_equal_strategy():
     restored = deserialize_strategy(serialize_strategy(strategy))
 
     assert restored == strategy
+
+
+def test_slots_for_display_is_columnar_and_matches_the_source_slots():
+    strategy = compute_strategy(
+        now=NOW,
+        current_temp_c=CEILING_C,
+        floor_c=FLOOR_C,
+        ceiling_c=CEILING_C,
+        forecast=_hourly_forecast(24),
+        price_slots=_hourly_slots([0.30] * 12 + [0.05] * 12),
+        model=MODEL,
+        heater_power_kw=HEATER_POWER_KW,
+    )
+    assert strategy is not None
+
+    display = slots_for_display(strategy)
+
+    assert set(display.keys()) == {"start", "end", "price", "planned_temp_c", "heat_on"}
+    n = len(strategy.slots)
+    assert all(len(v) == n for v in display.values())
+    first = strategy.slots[0]
+    assert display["start"][0] == int(first.start.timestamp())
+    assert display["end"][0] == int(first.end.timestamp())
+    assert display["price"][0] == round(first.price, 4)
+    assert display["planned_temp_c"][0] == round(first.planned_temp_c, 2)
+    assert display["heat_on"][0] == (1 if first.heat_on else 0)
+    # Doesn't touch the Store-facing shape - that must stay stable across
+    # restarts independent of how the display shape evolves.
+    assert set(serialize_strategy(strategy)["slots"][0].keys()) == {
+        "start",
+        "end",
+        "price",
+        "planned_temp_c",
+        "heat_on",
+    }
+    assert isinstance(serialize_strategy(strategy)["slots"], list)
 
 
 def test_deserialize_returns_none_for_malformed_input():

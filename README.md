@@ -136,7 +136,7 @@ device page can.
 | `sensor.spa_miser_decision_reason` | Why the current recommendation was made |
 | `sensor.spa_miser_control_status` | Whether spa-miser can actually act right now: `Disabled`, `Paused (manual override)`, `Unavailable`, `Not ready yet`, or `Active` - in particular, a manual-override pause (see `manual_override_minutes`) is otherwise invisible from every other entity, since it looks identical to "nothing to do right now". `override_until` attribute has the resume time when paused. |
 | `sensor.spa_miser_current_price` | Current price (p/kWh) from whichever price source is configured - populates immediately, doesn't need the model |
-| `sensor.spa_miser_daily_strategy` | The committed heating strategy: state is when it was last computed, `slots` attribute has the planned temperature/price/heat-on per slot (see [Example dashboard](#example-dashboard)) - despite the entity name, it's no longer strictly "daily": see `strategy_recompute_interval_hours` below |
+| `sensor.spa_miser_daily_strategy` | The committed heating strategy: state is when it was last computed, `slots` attribute has the planned temperature/price/heat-on per slot as parallel arrays (`start`/`end` epoch seconds, `price`/`planned_temp_c` rounded floats, `heat_on` 0/1 - see [Example dashboard](#example-dashboard)) - despite the entity name, it's no longer strictly "daily": see `strategy_recompute_interval_hours` below |
 | `sensor.spa_miser_active_range` | Which hardware preset is actually in force right now (`High Range` / `Low Range`) and why - `reason` attribute is `Normal`, `Away mode`, or `Price cap exceeded` |
 
 **Diagnostic (collapsed by default on the device page):**
@@ -490,8 +490,8 @@ card:
       show:
         legend_value: false
       data_generator: |
-        return entity.attributes.slots.map((slot) => [
-          new Date(slot.start).getTime(), slot.planned_temp_c
+        return entity.attributes.slots.end.map((end, i) => [
+          end * 1000, entity.attributes.slots.planned_temp_c[i]
         ]);
     - entity: climate.balboa_spa_spa_controls
       attribute: temperature
@@ -549,8 +549,8 @@ card:
       show:
         legend_value: false
       data_generator: |
-        return entity.attributes.slots.map((slot) => [
-          new Date(slot.start).getTime(), slot.heat_on ? 1 : 0
+        return entity.attributes.slots.start.map((start, i) => [
+          start * 1000, entity.attributes.slots.heat_on[i]
         ]);
     - entity: number.spa_miser_max_comfort_temp
       name: Max comfort

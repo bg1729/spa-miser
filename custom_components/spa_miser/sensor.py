@@ -30,7 +30,7 @@ from .const import (
 )
 from .coordinator import SpaMiserCoordinator, SpaMiserData
 from .entity import SpaMiserEntity
-from .strategy import serialize_strategy
+from .strategy import slots_for_display
 from .thermal_model import estimated_volume_liters
 
 
@@ -301,6 +301,10 @@ class DailyStrategySensor(SpaMiserEntity, SensorEntity):
     attributes for a chart (e.g. apexcharts-card) to plot as a future
     series - HA's built-in history/statistics-graph cards only render
     recorded history, not a forecast, so this is the only way to expose it.
+
+    `slots` is columnar (parallel arrays keyed by field, epoch-second
+    timestamps, rounded floats) rather than a list of per-slot objects -
+    see strategy.slots_for_display for why.
     """
 
     _attr_translation_key = "daily_strategy"
@@ -327,8 +331,8 @@ class DailyStrategySensor(SpaMiserEntity, SensorEntity):
     def extra_state_attributes(self) -> dict[str, object]:
         strategy = self.coordinator.strategy
         if strategy is None:
-            return {"slots": []}
-        return {"slots": serialize_strategy(strategy)["slots"]}
+            return {"slots": {"start": [], "end": [], "price": [], "planned_temp_c": [], "heat_on": []}}
+        return {"slots": slots_for_display(strategy)}
 
 
 class PriceForecastSensor(SpaMiserEntity, SensorEntity):
