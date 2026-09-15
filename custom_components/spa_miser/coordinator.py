@@ -162,6 +162,16 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
         self._model: ThermalModelParams | None = None
         self._last_fit: datetime | None = None
         self._strategy: DailyStrategy | None = None
+        # The real current_temp_c a fresh plan's first slot actually
+        # simulated forward from - see strategy_anchor_temp_c. Deliberately
+        # NOT part of DailyStrategy/serialize_strategy: it's a display-only
+        # annotation for the chart, and keeping it out of the Store-
+        # persisted shape means it can't ever risk that format's backward
+        # compatibility across restarts (see slots_for_display for the same
+        # reasoning applied to the slots attribute). It just starts back at
+        # None after a restart until the next real recompute repopulates it
+        # - a harmless, temporary gap in one chart annotation, not a bug.
+        self._strategy_anchor_temp_c: float | None = None
         self._heater_power_kw: float = history.DEFAULT_HEATER_POWER_KW
         # Persists the committed plan across restarts - see async_setup
         # (restore) and _async_recompute_strategy (save). Keyed per entry
@@ -333,6 +343,16 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
         into the per-tick snapshot.
         """
         return self._strategy
+
+    @property
+    def strategy_anchor_temp_c(self) -> float | None:
+        """The real current_temp_c the current plan's first fresh slot was
+        actually simulated forward from - None until a real recompute has
+        happened (e.g. right after a restart). Exists purely so the chart
+        can plot the exact moment/value a recompute corrected the model's
+        belief, instead of that correction only becoming visible up to 30
+        minutes later at the next slot boundary."""
+        return self._strategy_anchor_temp_c
 
     async def async_set_enabled(self, value: bool) -> None:
         self._enabled = value
@@ -688,6 +708,7 @@ class SpaMiserCoordinator(DataUpdateCoordinator[SpaMiserData]):
         )
 
         self._strategy = strategy
+        self._strategy_anchor_temp_c = current_temp
         await self._strategy_store.async_save(serialize_strategy(strategy))
         _LOGGER.info(
             "Computed new daily strategy: %d slots (%d preserved history), %d heat-on, heater_power_kw=%.2f",

@@ -136,7 +136,7 @@ device page can.
 | `sensor.spa_miser_decision_reason` | Why the current recommendation was made |
 | `sensor.spa_miser_control_status` | Whether spa-miser can actually act right now: `Disabled`, `Paused (manual override)`, `Unavailable`, `Not ready yet`, or `Active` - in particular, a manual-override pause (see `manual_override_minutes`) is otherwise invisible from every other entity, since it looks identical to "nothing to do right now". `override_until` attribute has the resume time when paused. |
 | `sensor.spa_miser_current_price` | Current price (p/kWh) from whichever price source is configured - populates immediately, doesn't need the model |
-| `sensor.spa_miser_daily_strategy` | The committed heating strategy: state is when it was last computed, `slots` attribute has the planned temperature/price/heat-on per slot as parallel arrays (`start`/`end` epoch seconds, `price`/`planned_temp_c` rounded floats, `heat_on` 0/1 - see [Example dashboard](#example-dashboard)) - despite the entity name, it's no longer strictly "daily": see `strategy_recompute_interval_hours` below |
+| `sensor.spa_miser_daily_strategy` | The committed heating strategy: state is when it was last computed, `slots` attribute has the planned temperature/price/heat-on per slot as parallel arrays (`start`/`end` epoch seconds, `price`/`planned_temp_c` rounded floats, `heat_on` 0/1), `anchor_temp_c` is the real current temperature that recompute started from (see [Example dashboard](#example-dashboard) and "Known limitations" below) - despite the entity name, it's no longer strictly "daily": see `strategy_recompute_interval_hours` below |
 | `sensor.spa_miser_active_range` | Which hardware preset is actually in force right now (`High Range` / `Low Range`) and why - `reason` attribute is `Normal`, `Away mode`, or `Price cap exceeded` |
 
 **Diagnostic (collapsed by default on the device page):**
@@ -484,15 +484,23 @@ card:
       name: Expected temperature
       yaxis_id: temp
       color: "#9467bd"
-      curve: stepline
       stroke_width: 1.5
       extend_to: false
       show:
         legend_value: false
       data_generator: |
-        return entity.attributes.slots.end.map((end, i) => [
-          end * 1000, entity.attributes.slots.planned_temp_c[i]
-        ]);
+        const slots = entity.attributes.slots;
+        const pts = slots.end.map((end, i) => [end * 1000, slots.planned_temp_c[i]]);
+        if (entity.attributes.anchor_temp_c != null) {
+          // The recompute's real starting temperature, plotted at the
+          // recompute's own timestamp - shows the model's belief-
+          // correction exactly when it happened, not only up to 30
+          // minutes later at the next slot boundary (see "Known
+          // limitations" above).
+          pts.push([new Date(entity.state).getTime(), entity.attributes.anchor_temp_c]);
+        }
+        pts.sort((a, b) => a[0] - b[0]);
+        return pts;
     - entity: climate.balboa_spa_spa_controls
       attribute: temperature
       name: Setpoint
@@ -693,21 +701,46 @@ contacted.
     system's chance to thermally catch up to the model, and the
     only chance to confirm (or correct) the model's belief with real data.
 
-- **A single bad forecast data point can distort one slot's plan.**
-  `weather.get_forecasts` responses aren't otherwise validated - a
-  Fahrenheit-scaled value has been observed slipping through unconverted
-  from the upstream weather integration (~78°C for what was actually a
-  normal ~22°C September afternoon), which fed straight into the thermal
-  model and showed up as a brief, physically-impossible uptick in the
-  "Expected temperature" chart series during a coast period. Forecast
-  points outside a plausible range (`MIN_PLAUSIBLE_AMBIENT_TEMP_C`/
-  `MAX_PLAUSIBLE_AMBIENT_TEMP_C` in `const.py`, currently -20°C to 45°C)
-  are now dropped with a logged warning instead of being used. Every
-  strategy recompute also logs its full inputs (current temp, comfort
-  bounds, fitted model coefficients, heater power estimate, and every
-  forecast point used) at `info` level unconditionally - recomputes only
-  happen a handful of times a day, so this is a few KB/day at most, nowhere
-  near a disk-space concern.
+- **`weather.get_forecasts` responses aren't otherwise validated.**
+  Forecast points outside a plausible range
+  (`MIN_PLAUSIBLE_AMBIENT_TEMP_C`/`MAX_PLAUSIBLE_AMBIENT_TEMP_C` in
+  `const.py`, currently -20°C to 45°C) are dropped with a logged warning
+  instead of being fed to the thermal model - defensive, since a single bad
+  upstream data point would otherwise distort a slot's simulated trajectory
+  with nothing to catch it. Every strategy recompute also logs its full
+  inputs (current temp, comfort bounds, fitted model coefficients, heater
+  power estimate, and every forecast point used) at `info` level
+  unconditionally - recomputes only happen a handful of times a day, so
+  this is a few KB/day at most, nowhere near a disk-space concern. Home
+  Assistant's default logger configuration filters `info` out for custom
+  integrations, though - add this to `configuration.yaml` once to actually
+  see it:
+  ```yaml
+  logger:
+    logs:
+      custom_components.spa_miser: info
+  ```
+
+- **A recompute's first slot restarts from the real current temperature,
+  not from wherever the previous plan's simulated belief had drifted to.**
+  `sensor.spa_miser_daily_strategy`'s `slots` attribute keeps a plan's
+  already-elapsed slots around so the "Expected temperature" chart series
+  looks like continuous history (see `strategy_recompute_interval_hours`
+  above) - but those preserved slots are frozen exactly as the *old* plan
+  simulated them, while a fresh recompute's first slot starts over from
+  whatever `current_temp_c` genuinely reads at that moment. If the two
+  differ (they will, by however much the model's forecast turned out to be
+  off), the chart shows a step at the recompute boundary - not a bug, just
+  the model correcting itself to reality, and arguably the most useful part
+  of the whole series for spotting model drift. Two things make this
+  legible instead of confusing: `sensor.spa_miser_model_last_refit`'s
+  history plots as a marker series showing exactly when a recompute
+  happened, and `anchor_temp_c` (a sibling attribute alongside `slots`) is
+  the real `current_temp_c` that recompute actually used - a chart can add
+  it as one extra point at the recompute's own timestamp (`state`), so the
+  correction shows up exactly when it happened rather than only becoming
+  visible up to 30 minutes later at the next slot boundary (see the
+  "Expected temperature" series below).
 
 - **`actual_kwh_today` and `cost_saved_today` measure the whole spa, not
   just heating.** The configured `energy_entity`/`power_entity` are

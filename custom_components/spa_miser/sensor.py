@@ -305,6 +305,14 @@ class DailyStrategySensor(SpaMiserEntity, SensorEntity):
     `slots` is columnar (parallel arrays keyed by field, epoch-second
     timestamps, rounded floats) rather than a list of per-slot objects -
     see strategy.slots_for_display for why.
+
+    `anchor_temp_c` is the real current_temp_c a fresh recompute's first
+    slot actually started simulating from (paired with `state`, the
+    recompute's timestamp) - a chart can plot this as one extra point so
+    the model's belief-correction at a recompute shows exactly when it
+    happened, rather than only becoming visible up to 30 minutes later at
+    the next slot boundary. None until the first real recompute (e.g. right
+    after a restart).
     """
 
     _attr_translation_key = "daily_strategy"
@@ -330,9 +338,14 @@ class DailyStrategySensor(SpaMiserEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, object]:
         strategy = self.coordinator.strategy
+        raw_anchor = self.coordinator.strategy_anchor_temp_c
+        anchor = round(raw_anchor, 2) if raw_anchor is not None else None
         if strategy is None:
-            return {"slots": {"start": [], "end": [], "price": [], "planned_temp_c": [], "heat_on": []}}
-        return {"slots": slots_for_display(strategy)}
+            return {
+                "slots": {"start": [], "end": [], "price": [], "planned_temp_c": [], "heat_on": []},
+                "anchor_temp_c": anchor,
+            }
+        return {"slots": slots_for_display(strategy), "anchor_temp_c": anchor}
 
 
 class PriceForecastSensor(SpaMiserEntity, SensorEntity):

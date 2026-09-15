@@ -744,3 +744,23 @@ async def test_recompute_logs_its_inputs(
     assert "Recomputing strategy" in caplog.text
     assert "model(loss=" in caplog.text
     assert "forecast=" in caplog.text
+
+
+async def test_strategy_anchor_temp_c_tracks_the_real_recompute_input(
+    recorder_mock, hass: HomeAssistant, enable_custom_integrations
+):
+    """A fresh recompute's first slot simulates forward from the real
+    current_temp_c, not from wherever the previous plan's simulated belief
+    had drifted to for that same instant - so the "Expected temperature"
+    chart's preserved-past segment and its fresh segment can legitimately
+    show different values at the same boundary. That's not a bug, but it
+    does mean the chart needs the real anchor value to annotate exactly
+    when/what a recompute corrected, rather than that only becoming visible
+    up to 30 minutes later at the next slot boundary."""
+    coordinator, _calls = await _setup_coordinator(hass, cheap_now=True, current_temp=37.5)
+    assert coordinator.strategy_anchor_temp_c is None
+
+    await coordinator.async_set_enabled(True)
+    await hass.async_block_till_done()
+
+    assert coordinator.strategy_anchor_temp_c == 37.5

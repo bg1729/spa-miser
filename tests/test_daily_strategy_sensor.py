@@ -117,3 +117,8 @@ async def test_daily_strategy_sensor_reflects_the_computed_plan(
     assert slots["price"][0] == round(first_slot.price, 4)
     assert slots["heat_on"][0] in (0, 1)
     assert isinstance(slots["planned_temp_c"][0], float)
+
+    # The real current_temp_c the fresh plan actually started from - lets a
+    # chart plot the recompute's belief-correction at its exact timestamp
+    # instead of only at the next 30-minute slot boundary.
+    assert state.attributes["anchor_temp_c"] == 39.5
