@@ -478,6 +478,7 @@ card:
       color: "#1f77b4"
       stroke_width: 1.5
       extend_to: now
+      curve: stepline
       show:
         legend_value: false
     - entity: sensor.spa_miser_daily_strategy
